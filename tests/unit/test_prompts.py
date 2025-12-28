@@ -198,10 +198,10 @@ class TestPromptQualityWithDeepEval:
         test_input = "My device won't turn on. What should I do?"
         # Example output following technical support prompt with Australian expressions
         actual_output = (
-            "No worries, mate! Let's sort this out step by step. First up, check if your device is charged "
-            "by connecting it to a power source for at least 30 minutes. Then, have a go at pressing and "
-            "holding the power button for 10 seconds. If she still won't turn on, "
-            "I can connect you with one of our technical specialists who can help you out."
+            "Let's troubleshoot this step by step. First, connect your device to a power source "
+            "and leave it charging for 30 minutes - the battery might be completely flat. "
+            "After that, press and hold the power button for 10 seconds to perform a hard reset. "
+            "If it still won't turn on after these steps, the issue might need a specialist to have a look."
         )
 
         metric = AnswerRelevancyMetric(threshold=0.7, model="gpt-4o", include_reason=True)
