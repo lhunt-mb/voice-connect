@@ -148,6 +148,12 @@ Inbound (from Nova):
 - Seamless AWS integration with Amazon Connect and DynamoDB
 - 8 kHz telephony audio optimized for voice calls
 
+**Regional Configuration**:
+- Nova 2 Sonic is available in: `us-east-1`, `eu-north-1`, `ap-northeast-1`
+- The Gateway service connects to Nova 2 in the specified `NOVA_REGION`
+- DynamoDB and Lambda can be in a different `AWS_REGION` for optimal latency
+- Cross-region calls are handled transparently by the AWS SDK
+
 ### 4. DynamoDB Repository
 
 **Location**: `services/orchestrator/dynamo_repository.py`
@@ -495,7 +501,8 @@ The system uses a factory pattern to instantiate the appropriate voice client ba
 if config.voice_provider == "openai":
     voice_client = OpenAIRealtimeClient(api_key=config.openai_api_key)
 elif config.voice_provider == "nova":
-    voice_client = NovaClient(region=config.aws_region)
+    # Nova 2 uses dedicated NOVA_REGION (can differ from AWS_REGION)
+    voice_client = NovaClient(region=config.nova_region)
 ```
 
 Both clients implement the `VoiceClientBase` interface:
@@ -506,6 +513,36 @@ Both clients implement the `VoiceClientBase` interface:
 - `close()`: Clean up connection
 
 This abstraction allows seamless switching between providers without modifying the gateway or stream handler logic.
+
+### Multi-Region Architecture (Nova 2)
+
+When using Nova 2 Sonic, the system supports a multi-region architecture:
+
+```
+┌──────────────────────────────────────────────────────┐
+│ Gateway Service (ap-southeast-2)                     │
+│   ├─> DynamoDB (ap-southeast-2)                     │
+│   └─> Nova 2 Client ─────────────────┐              │
+└──────────────────────────────────────┼──────────────┘
+                                        │ Cross-region
+                                        │ Bedrock call
+                                        ▼
+                        ┌───────────────────────────────┐
+                        │ AWS Bedrock (us-east-1)       │
+                        │   Nova 2 Sonic Model          │
+                        └───────────────────────────────┘
+
+┌──────────────────────────────────────────────────────┐
+│ Lambda Function (ap-southeast-2)                     │
+│   └─> DynamoDB (ap-southeast-2)                     │
+└──────────────────────────────────────────────────────┘
+```
+
+**Benefits**:
+- **Data Residency**: Keep DynamoDB and Lambda in your preferred region for compliance
+- **Latency Optimization**: Place Lambda close to Amazon Connect for faster handover
+- **Model Access**: Use Nova 2 from supported regions regardless of where other resources are
+- **Cost Optimization**: Minimize data transfer costs by keeping most resources in one region
 
 ## Future Enhancements
 

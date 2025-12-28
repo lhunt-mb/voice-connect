@@ -47,14 +47,22 @@ class NovaClient(VoiceClientBase):
         self._stream_response: Any = None
         self._audio_stream_started = False
 
+        # Get Nova region (fallback to aws_region for backward compatibility)
+        nova_region = settings.nova_region or settings.aws_region
+
         # Initialize Bedrock client with experimental SDK
         config = Config(
-            endpoint_uri=f"https://bedrock-runtime.{settings.aws_region}.amazonaws.com",
-            region=settings.aws_region,
+            endpoint_uri=f"https://bedrock-runtime.{nova_region}.amazonaws.com",
+            region=nova_region,
             aws_credentials_identity_resolver=EnvironmentCredentialsResolver(),
         )
         self.bedrock_client = BedrockRuntimeClient(config=config)
         self.model_id = "amazon.nova-2-sonic-v1:0"
+
+        logger.info(
+            "Initialized Nova 2 Sonic client",
+            extra={"nova_region": nova_region, "model_id": self.model_id},
+        )
 
         # Session identifiers for Nova 2 Sonic events
         self.prompt_name = str(uuid.uuid4())

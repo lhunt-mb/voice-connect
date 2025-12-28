@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     openai_voice: str = Field(default="verse", description="OpenAI voice")
 
     # AWS Configuration
-    aws_region: str = Field(default="ap-southeast-2", description="AWS region")
+    aws_region: str = Field(default="ap-southeast-2", description="AWS region for DynamoDB and Lambda")
+    nova_region: str | None = Field(
+        default=None, description="AWS region for Nova 2 Sonic (required if voice_provider=nova)"
+    )
     aws_access_key_id: str | None = Field(default=None, description="AWS access key ID")
     aws_secret_access_key: str | None = Field(default=None, description="AWS secret access key")
     dynamodb_endpoint_url: str | None = Field(default=None, description="DynamoDB endpoint URL (for local dev)")

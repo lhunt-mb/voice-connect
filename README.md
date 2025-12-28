@@ -107,7 +107,8 @@ This system implements Pattern A architecture for enterprise voice AI:
 
    # OR for Amazon Nova 2 Sonic
    VOICE_PROVIDER=nova
-   AWS_REGION=us-east-1
+   AWS_REGION=ap-southeast-2  # For DynamoDB and Lambda
+   NOVA_REGION=us-east-1      # For Nova 2 Sonic model
    ```
 
 8. **Test a call**
@@ -185,22 +186,26 @@ All configuration via environment variables (see [.env.example](.env.example)):
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `AWS_REGION` | AWS region (us-east-1, eu-north-1, ap-northeast-1) | Yes |
+| `NOVA_REGION` | Nova 2 region (us-east-1, eu-north-1, ap-northeast-1) | Yes |
 | `AWS_ACCESS_KEY_ID` | AWS access key | Yes* |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes* |
 
 *Not required if using IAM roles. Nova 2 Sonic requires Bedrock permissions (`bedrock:InvokeModelWithResponseStream`).
 
+**Note**: The `NOVA_REGION` can be different from `AWS_REGION`. Nova 2 Sonic is only available in specific regions, while your DynamoDB and Lambda can be in any region for optimal latency.
+
 ### AWS
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `AWS_REGION` | AWS region | Yes |
+| `AWS_REGION` | AWS region for DynamoDB and Lambda | Yes |
 | `AWS_ACCESS_KEY_ID` | AWS access key | Yes* |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes* |
 | `DYNAMODB_TABLE_NAME` | DynamoDB table name | Yes |
 
 *Not required if using IAM roles (EC2, ECS, Lambda). AWS credentials are always required for DynamoDB.
+
+**Multi-Region Setup**: When using Nova 2 Sonic, `AWS_REGION` is used for DynamoDB/Lambda, while `NOVA_REGION` is used for the Bedrock model. This allows you to optimize for latency and data residency requirements independently.
 
 ### Amazon Connect
 
@@ -238,7 +243,9 @@ docker build -t connect-lambda .
 
 Environment variables for Lambda:
 - `DYNAMODB_TABLE_NAME=HandoverTokens`
-- `AWS_REGION=ap-southeast-2`
+- `AWS_REGION=ap-southeast-2`  # Lambda region (can be different from Nova 2 region)
+
+**Note**: The Lambda function is deployed in your preferred AWS region (e.g., `ap-southeast-2`) where your DynamoDB table resides. This is independent of the Nova 2 Sonic model region (`us-east-1`, `eu-north-1`, or `ap-northeast-1`).
 
 ### 3. Configure Contact Flow
 

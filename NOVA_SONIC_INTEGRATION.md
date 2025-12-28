@@ -47,20 +47,40 @@ VOICE_PROVIDER=nova  # Options: "openai" or "nova"
 # OpenAI Configuration (only needed if VOICE_PROVIDER=openai)
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxx
 
-# AWS Configuration (required for both providers as used for DynamoDB)
-AWS_REGION=us-east-1  # Nova Sonic available in us-east-1, eu-north-1, ap-northeast-1
+# AWS Configuration (required for both providers)
+AWS_REGION=ap-southeast-2      # For DynamoDB and Lambda (can be any region)
+NOVA_REGION=us-east-1          # For Nova 2 Sonic model (must be a supported region)
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 ```
 
 ### Regional Availability
 
-Nova Sonic is available in these AWS regions:
+Nova 2 Sonic is available in these AWS regions:
 - `us-east-1` (US East - N. Virginia)
 - `eu-north-1` (Europe - Stockholm)
 - `ap-northeast-1` (Asia Pacific - Tokyo)
 
-**Important**: Set `AWS_REGION` to one of these regions when using Nova Sonic.
+**Important**: Set `NOVA_REGION` to one of these regions. The `AWS_REGION` variable is used for DynamoDB and Lambda, and can be set to any AWS region to optimize for latency and compliance.
+
+### Multi-Region Architecture
+
+The system supports deploying resources in different regions:
+
+- **NOVA_REGION**: Where the Nova 2 Sonic model runs (limited to supported regions)
+- **AWS_REGION**: Where DynamoDB and Lambda are deployed (any AWS region)
+
+Example configuration for Australian deployment:
+```bash
+VOICE_PROVIDER=nova
+AWS_REGION=ap-southeast-2      # Sydney - for DynamoDB, Lambda, Amazon Connect
+NOVA_REGION=ap-northeast-1     # Tokyo - closest Nova 2 region
+```
+
+This allows you to:
+1. Keep data in your preferred region for compliance
+2. Minimize latency to Amazon Connect
+3. Use Nova 2 Sonic from the nearest supported region
 
 ## IAM Permissions
 
@@ -159,7 +179,8 @@ To switch between providers:
    ```bash
    # In .env file
    VOICE_PROVIDER=nova
-   AWS_REGION=us-east-1  # Must be a Nova-supported region
+   AWS_REGION=ap-southeast-2  # Your preferred region for DynamoDB/Lambda
+   NOVA_REGION=us-east-1      # Must be a Nova-supported region
    ```
 
 2. **Switch back to OpenAI**:
@@ -219,7 +240,8 @@ Test the integration:
 ## Troubleshooting
 
 ### "Model not found in region"
-- Ensure `AWS_REGION` is set to `us-east-1`, `eu-north-1`, or `ap-northeast-1`
+- Ensure `NOVA_REGION` is set to `us-east-1`, `eu-north-1`, or `ap-northeast-1`
+- Note that `AWS_REGION` (for DynamoDB/Lambda) can be different
 
 ### "AccessDeniedException"
 - Check IAM permissions include `bedrock:InvokeModelWithResponseStream`
