@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Server
+      - HOST=0.0.0.0
+      - PORT=8000
+      - PUBLIC_HOST=${PUBLIC_HOST}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Twilio
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+
+      # Voice Provider
+      - VOICE_PROVIDER=${VOICE_PROVIDER:-openai}
+
+      # OpenAI
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_REALTIME_MODEL=${OPENAI_REALTIME_MODEL:-gpt-4o-realtime-preview-2024-12-17}
+      - OPENAI_VOICE=${OPENAI_VOICE:-alloy}
+
+      # AWS
+      - AWS_REGION=${AWS_REGION:-ap-southeast-2}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8000
+      - DYNAMODB_TABLE_NAME=${DYNAMODB_TABLE_NAME:-HandoverTokens}
+
+      # Amazon Connect
+      - CONNECT_PHONE_NUMBER=${CONNECT_PHONE_NUMBER}
+      - CONNECT_INSTANCE_ID=${CONNECT_INSTANCE_ID}
+
+      # HubSpot
+      - ENABLE_HUBSPOT=${ENABLE_HUBSPOT:-true}
+      - HUBSPOT_ACCESS_TOKEN=${HUBSPOT_ACCESS_TOKEN}
+      - HUBSPOT_API_BASE_URL=${HUBSPOT_API_BASE_URL:-https://api.hubapi.com}
+
+      # Config
+      - TOKEN_TTL_SECONDS=${TOKEN_TTL_SECONDS:-600}
+      - TOKEN_LENGTH=${TOKEN_LENGTH:-10}
+      - USE_LOCAL_DYNAMODB=true
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+    volumes:
+      - ./shared:/app/shared
+      - ./services:/app/services
+    networks:
+      - voice-network
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: dynamodb-local
+    ports:
+      - "8001:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import socket; s = socket.socket(); s.connect((\"localhost\", 8000)); s.close()' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - voice-network
+
+volumes:
+  dynamodb-data:
+
+networks:
+  voice-network:
+    driver: bridge

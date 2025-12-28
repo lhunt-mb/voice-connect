@@ -1,0 +1,106 @@
+[project]
+name = "voice-openai-connect"
+version = "0.1.0"
+description = "Enterprise conversational AI gateway with Twilio, OpenAI Realtime, and Amazon Connect integration"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "websockets>=13.1",
+    "httpx>=0.27.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "boto3>=1.35.0",
+    "python-json-logger>=2.0.7",
+    "tenacity>=9.0.0",
+    "python-multipart>=0.0.9",
+    "twilio>=9.0.0",
+    "aws-sdk-bedrock-runtime>=0.2.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["services*", "shared*", "aws*"]
+exclude = ["tests*"]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.7.0",
+    "pyright>=1.1.380",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "moto[dynamodb]>=5.0.0",
+    "pre-commit>=3.8.0",
+    "deepeval>=1.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long, handled by formatter
+    "B008",  # do not perform function calls in argument defaults
+    "ARG001", # unused function argument
+    "ARG002", # unused method argument
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*.py" = ["ARG", "SIM"]
+
+[tool.pyright]
+include = ["services", "aws", "shared", "tests"]
+exclude = ["**/__pycache__", ".venv", "venv"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportMissingImports = "warning"  # DeepEval is optional, don't fail on missing imports
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "deepeval: DeepEval LLM-based evaluation tests (requires OPENAI_API_KEY)",
+]
+
+[tool.coverage.run]
+source = ["services", "aws", "shared"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

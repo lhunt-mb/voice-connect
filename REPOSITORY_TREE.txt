@@ -1,0 +1,104 @@
+voice-openai-connect/
+│
+├── 📄 Configuration & Setup
+│   ├── .env.example                    # Environment variables template
+│   ├── .gitignore                      # Git ignore rules
+│   ├── .pre-commit-config.yaml         # Pre-commit hooks
+│   ├── docker-compose.yml              # Local dev stack with DynamoDB Local
+│   ├── Dockerfile                      # Gateway service container
+│   ├── LICENSE                         # MIT License
+│   ├── Makefile                        # Development commands
+│   └── pyproject.toml                  # Python project config + dependencies
+│
+├── 📚 Documentation
+│   ├── README.md                       # Main documentation (380 lines)
+│   ├── ARCHITECTURE.md                 # System architecture (600 lines)
+│   ├── QUICKSTART.md                   # Quick start guide (250 lines)
+│   ├── CONTRIBUTING.md                 # Contribution guidelines (200 lines)
+│   ├── DEPLOYMENT_CHECKLIST.md         # Production deployment (350 lines)
+│   ├── IMPLEMENTATION_SUMMARY.md       # This implementation summary
+│   ├── PROJECT_STRUCTURE.txt           # File tree with descriptions
+│   └── REPOSITORY_TREE.txt             # Visual tree (this file)
+│
+├── 🚀 Services
+│   ├── gateway/                        # FastAPI Gateway Service
+│   │   ├── __init__.py
+│   │   ├── app.py                      # FastAPI app with HTTP + WebSocket endpoints
+│   │   ├── session_manager.py         # Per-call session state management
+│   │   └── stream_handler.py          # Twilio ↔ OpenAI audio bridge
+│   │
+│   └── orchestrator/                   # Business Logic & Integrations
+│       ├── __init__.py
+│       ├── openai_realtime.py          # OpenAI Realtime WebSocket client
+│       ├── dynamo_repository.py        # DynamoDB operations (put/get/delete)
+│       ├── hubspot_client.py           # HubSpot API client (async)
+│       ├── twilio_client.py            # Twilio REST API client (calls + DTMF)
+│       ├── token_generator.py          # 10-digit token generation
+│       ├── escalation.py               # Escalation policies & detection
+│       └── orchestrator.py             # Main orchestration coordinator
+│
+├── 🔧 Shared Utilities
+│   ├── __init__.py
+│   ├── config.py                       # Pydantic Settings configuration
+│   ├── logging.py                      # Structured JSON logging with correlation IDs
+│   ├── types.py                        # Pydantic models (SessionState, HandoverPayload, etc.)
+│   ├── aws_clients.py                  # AWS client factories (DynamoDB)
+│   └── retry.py                        # Retry policies (tenacity)
+│
+├── ☁️  AWS Lambda
+│   └── connect_lambda/                 # Amazon Connect Integration
+│       ├── __init__.py
+│       ├── handler.py                  # Lambda handler (token validation + lookup)
+│       ├── requirements.txt            # Lambda dependencies (boto3)
+│       └── Dockerfile                  # Lambda deployment container
+│
+├── 🧪 Tests
+│   └── unit/                           # Unit Tests
+│       ├── __init__.py
+│       ├── test_token_generator.py     # Token generation tests
+│       ├── test_dynamo_repository.py   # DynamoDB operations tests
+│       ├── test_connect_lambda.py      # Lambda handler tests
+│       ├── test_hubspot_client.py      # HubSpot client tests
+│       └── test_escalation.py          # Escalation logic tests
+│
+├── 📜 Scripts
+│   ├── create_dynamodb_table.sh        # Create HandoverTokens table with TTL
+│   └── deploy_lambda.sh                # Deploy Connect Lambda function
+│
+└── 🔄 CI/CD
+    └── .github/workflows/
+        └── ci.yml                      # GitHub Actions (Ruff, Pyright, Pytest)
+
+KEY FILES BY FUNCTION:
+
+🎯 Entry Points:
+  - services/gateway/app.py             Main FastAPI application
+  - aws/connect_lambda/handler.py       Lambda function handler
+
+🔌 External Integrations:
+  - services/orchestrator/openai_realtime.py    OpenAI Realtime API
+  - services/orchestrator/hubspot_client.py     HubSpot CRM
+  - services/orchestrator/twilio_client.py      Twilio REST API
+  - services/orchestrator/dynamo_repository.py  AWS DynamoDB
+
+🎨 Core Logic:
+  - services/gateway/stream_handler.py          Audio streaming & WebSocket handling
+  - services/orchestrator/orchestrator.py       Escalation workflow coordinator
+  - services/orchestrator/escalation.py         Keyword detection & policies
+
+⚙️  Configuration:
+  - shared/config.py                    All environment variables
+  - .env.example                        Configuration template
+
+📊 Observability:
+  - shared/logging.py                   Structured JSON logs with correlation IDs
+
+LINES OF CODE:
+  Python: ~2,227 lines
+  Documentation: ~1,500+ lines
+  Tests: ~400 lines
+  Total: ~4,000+ lines
+
+EXTERNAL DEPENDENCIES (9):
+  Production: fastapi, uvicorn, websockets, httpx, pydantic, pydantic-settings, boto3, python-json-logger, tenacity
+  Development: ruff, pyright, pytest, pytest-asyncio, pytest-cov, moto, pre-commit
