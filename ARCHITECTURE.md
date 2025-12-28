@@ -6,7 +6,7 @@ The Voice OpenAI Connect system implements a Pattern A enterprise voice AI archi
 
 1. **AI Voice Gateway** - FastAPI service handling Twilio WebSocket streams
 2. **Orchestrator** - Business logic for conversation management and escalation
-3. **OpenAI Realtime Client** - WebSocket client for OpenAI Realtime API
+3. **Voice Client** - Pluggable voice provider (OpenAI Realtime API or Amazon Nova 2 Sonic)
 4. **DynamoDB** - Token storage with TTL for handover context
 5. **HubSpot Integration** - CRM contact and ticket management
 6. **Amazon Connect Lambda** - Token validation and attribute retrieval
@@ -37,11 +37,11 @@ WebSocket Stream:
     ├─> Accept connection
     ├─> Wait for 'start' event
     ├─> Create session (SessionManager)
-    ├─> Initialize OpenAI client
+    ├─> Initialize voice client (OpenAI or Nova 2)
     ├─> Start StreamHandler
     │   ├─> Handle Twilio events (start, media, stop)
-    │   ├─> Forward audio to OpenAI
-    │   ├─> Receive OpenAI events
+    │   ├─> Forward audio to voice provider
+    │   ├─> Receive voice provider events
     │   ├─> Send audio back to Twilio
     │   └─> Check escalation on transcripts
     └─> Cleanup on disconnect
@@ -83,17 +83,23 @@ WebSocket Stream:
    └─> Return control
 
 6. End bot session
-   └─> Close OpenAI connection
+   └─> Close voice client connection
 ```
 
-### 3. OpenAI Realtime Client
+### 3. Voice Client
+
+**Location**: `services/orchestrator/`
+
+The system supports two voice providers through a common `VoiceClientBase` interface:
+
+#### 3a. OpenAI Realtime Client
 
 **Location**: `services/orchestrator/openai_realtime.py`
 
 **Responsibilities**:
 - Establish WebSocket connection to OpenAI Realtime API
 - Send session configuration (modalities, voice, VAD settings)
-- Stream audio input frames
+- Stream audio input frames (base64-encoded PCM16)
 - Receive and queue audio output frames
 - Receive transcripts and events
 
@@ -110,6 +116,37 @@ Inbound (from OpenAI):
   - response.done: Response completed
   - error: Error events
 ```
+
+#### 3b. Amazon Nova 2 Sonic Client
+
+**Location**: `services/orchestrator/nova_client.py`
+
+**Responsibilities**:
+- Establish bidirectional stream with AWS Bedrock Runtime
+- Send session configuration (audio format, system prompt)
+- Stream audio input frames (G.711 μ-law, native Twilio format)
+- Receive and queue audio output frames
+- Receive transcripts and events
+
+**Message Format**:
+
+```
+Outbound (to Nova):
+  - sessionStart: Configure session with audio format and system prompt
+  - audioChunk: Send audio data (hex-encoded G.711 μ-law)
+
+Inbound (from Nova):
+  - outputAudioDelta: Audio response chunks (G.711 μ-law)
+  - outputTranscriptDelta: AI transcript text
+  - inputTranscript: User transcript
+  - sessionEnd: Session completed
+```
+
+**Key Advantages**:
+- Native G.711 μ-law support (no audio conversion needed for Twilio)
+- Multi-language support (7 languages including English, French, Spanish, German, Italian, Portuguese, Hindi)
+- Seamless AWS integration with Amazon Connect and DynamoDB
+- 8 kHz telephony audio optimized for voice calls
 
 ### 4. DynamoDB Repository
 
@@ -219,23 +256,26 @@ PUT /crm/v4/associations/notes/tickets/batch/create
 ### Audio Streaming
 
 ```
-┌─────────┐         ┌─────────┐         ┌─────────┐
-│ Twilio  │         │ Gateway │         │ OpenAI  │
-└─────────┘         └─────────┘         └─────────┘
-     │                   │                    │
-     │  media (base64)   │                    │
-     ├──────────────────►│                    │
-     │                   │ input_audio_buffer │
-     │                   ├───────────────────►│
-     │                   │                    │
-     │                   │  audio.delta       │
-     │                   │◄───────────────────┤
-     │  media (base64)   │                    │
-     │◄──────────────────┤                    │
-     │                   │                    │
+┌─────────┐         ┌─────────┐         ┌──────────────┐
+│ Twilio  │         │ Gateway │         │Voice Provider│
+└─────────┘         └─────────┘         └──────────────┘
+     │                   │                      │
+     │  media (base64)   │                      │
+     ├──────────────────►│                      │
+     │                   │  audio data          │
+     │                   ├─────────────────────►│
+     │                   │                      │
+     │                   │  audio.delta         │
+     │                   │◄─────────────────────┤
+     │  media (base64)   │                      │
+     │◄──────────────────┤                      │
+     │                   │                      │
 ```
 
-**Note**: Twilio sends mulaw 8kHz, OpenAI expects PCM16. In production, implement audio format conversion.
+**Audio Format Notes**:
+- **Twilio**: Sends/receives G.711 μ-law 8kHz (base64-encoded)
+- **OpenAI Realtime**: Expects PCM16 (audio format conversion needed)
+- **Nova 2 Sonic**: Native G.711 μ-law 8kHz support (no conversion needed, ideal for telephony)
 
 ### Escalation Flow
 
@@ -305,17 +345,18 @@ SessionManager
 
 ### Resource Management
 
-- OpenAI WebSocket: One per active call
+- Voice Provider Connection: One per active call (WebSocket for OpenAI, bidirectional stream for Nova 2)
 - Twilio WebSocket: One per active call
 - DynamoDB: Shared client with connection pooling
 - HubSpot: Shared async HTTP client
+- AWS Bedrock (Nova 2): Shared client with async streaming support
 
 ## Error Handling
 
-### OpenAI Disconnect
+### Voice Provider Disconnect
 
 ```
-if openai_connection_closed:
+if voice_provider_connection_closed:
   ├─> Log error
   ├─> Send fallback message to user
   ├─> Optionally trigger escalation
@@ -327,7 +368,7 @@ if openai_connection_closed:
 ```
 if twilio_websocket_disconnected:
   ├─> Log event
-  ├─> Close OpenAI connection
+  ├─> Close voice provider connection
   ├─> Remove session from manager
   └─> Clean up resources
 ```
@@ -362,18 +403,20 @@ Gateway service is stateless (except in-memory sessions):
 
 ### Rate Limits
 
-- OpenAI: Requests per minute, tokens per minute
-- HubSpot: 100 requests per 10 seconds (burst)
-- Twilio: Account-specific limits
+- **OpenAI Realtime**: Requests per minute, tokens per minute (account tier dependent)
+- **Nova 2 Sonic**: AWS Bedrock service quotas and throttling limits
+- **HubSpot**: 100 requests per 10 seconds (burst)
+- **Twilio**: Account-specific limits
 
 ## Security
 
 ### Authentication
 
-- Twilio: Verify webhook signatures (not implemented, add in production)
-- OpenAI: API key in Authorization header
-- HubSpot: Private app token
-- AWS: IAM roles or access keys
+- **Twilio**: Verify webhook signatures (not implemented, add in production)
+- **OpenAI Realtime**: API key in Authorization header
+- **Nova 2 Sonic**: AWS credentials (IAM roles or access keys) with Bedrock permissions
+- **HubSpot**: Private app token
+- **AWS Services**: IAM roles or access keys
 
 ### Data Protection
 
@@ -396,7 +439,8 @@ Gateway service is stateless (except in-memory sessions):
 - gateway_active_sessions (gauge)
 - gateway_escalations_total (counter)
 - gateway_session_duration_seconds (histogram)
-- openai_connection_failures_total (counter)
+- voice_provider_connection_failures_total (counter)
+- voice_provider_type (gauge: openai or nova)
 - dynamodb_throttles_total (counter)
 - lambda_invocations_total (counter)
 - lambda_errors_total (counter)
@@ -415,7 +459,7 @@ All logs include correlation IDs:
 Consider adding distributed tracing:
 - OpenTelemetry
 - AWS X-Ray
-- Trace entire call flow from Twilio → Gateway → OpenAI → Connect
+- Trace entire call flow from Twilio → Gateway → Voice Provider → Connect
 
 ## Testing Strategy
 
@@ -423,6 +467,7 @@ Consider adding distributed tracing:
 
 - Token generation and validation
 - Escalation keyword detection
+- Voice client abstraction and provider selection
 - DynamoDB repository operations (mocked)
 - HubSpot client requests (mocked)
 - Lambda handler logic
@@ -441,13 +486,35 @@ Consider adding distributed tracing:
 - DynamoDB throughput
 - Memory usage under load
 
+## Voice Provider Selection
+
+The system uses a factory pattern to instantiate the appropriate voice client based on the `VOICE_PROVIDER` environment variable:
+
+```python
+# In orchestrator or gateway
+if config.voice_provider == "openai":
+    voice_client = OpenAIRealtimeClient(api_key=config.openai_api_key)
+elif config.voice_provider == "nova":
+    voice_client = NovaClient(region=config.aws_region)
+```
+
+Both clients implement the `VoiceClientBase` interface:
+- `connect()`: Establish connection to provider
+- `send_audio(audio_data)`: Stream audio to provider
+- `events()`: Async iterator for receiving events
+- `cancel_response()`: Interrupt current AI response
+- `close()`: Clean up connection
+
+This abstraction allows seamless switching between providers without modifying the gateway or stream handler logic.
+
 ## Future Enhancements
 
-1. **Audio Format Conversion**: Implement mulaw ↔ PCM16 conversion
+1. **Audio Format Conversion**: Implement mulaw ↔ PCM16 conversion for OpenAI (already native for Nova 2)
 2. **Sentiment Analysis**: Proactive escalation based on sentiment
 3. **Call Recording**: Store audio for compliance (S3 + encryption)
 4. **Agent Availability**: Check Connect queue before escalation
 5. **Callback**: Offer callback instead of immediate transfer
-6. **Multi-language**: Support multiple languages in OpenAI config
-7. **Custom Tools**: OpenAI function calling for specific actions
+6. **Multi-language**: Expose Nova 2's multi-language support via API
+7. **Custom Tools**: Function calling for specific actions (both providers support this)
 8. **Metrics Dashboard**: Real-time dashboard for operations
+9. **Hybrid Mode**: A/B testing with both providers simultaneously

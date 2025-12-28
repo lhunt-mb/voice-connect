@@ -1,6 +1,6 @@
 # Voice OpenAI Connect
 
-Enterprise conversational AI gateway integrating Twilio, OpenAI Realtime API, and Amazon Connect for seamless voice-to-human escalation workflows.
+Enterprise conversational AI gateway integrating Twilio, voice AI providers (OpenAI Realtime API or Amazon Nova 2 Sonic), and Amazon Connect for seamless voice-to-human escalation workflows.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ This system implements Pattern A architecture for enterprise voice AI:
 ┌─────────────┐         ┌──────────────────┐         ┌────────────────┐
 │   Twilio    │         │   AI Voice       │         │    OpenAI      │
 │   PSTN      │◄───────►│   Gateway        │◄───────►│   Realtime     │
-│   Call      │ WebSocket│   (FastAPI)     │ WebSocket│     API       │
+│   Call      │ WebSocket│   (FastAPI)     │ WebSocket│   or Nova 2   │
 └─────────────┘         └──────────────────┘         └────────────────┘
                                │      │
                                │      │
@@ -32,7 +32,8 @@ This system implements Pattern A architecture for enterprise voice AI:
 
 ## Features
 
-- **Real-time Voice AI**: Bi-directional audio streaming between Twilio and OpenAI Realtime API
+- **Real-time Voice AI**: Bi-directional audio streaming between Twilio and your choice of voice provider (OpenAI Realtime API or Amazon Nova 2 Sonic)
+- **Dual Provider Support**: Seamlessly switch between OpenAI Realtime and Amazon Nova 2 Sonic via configuration
 - **Concurrent Sessions**: Async architecture supporting many simultaneous calls
 - **Smart Escalation**: Keyword-based escalation to human agents in Amazon Connect
 - **Token-based Handover**: Secure DTMF token system for context transfer
@@ -46,8 +47,8 @@ This system implements Pattern A architecture for enterprise voice AI:
 - Python 3.12+
 - Docker and Docker Compose
 - Twilio account with voice number
-- OpenAI API access (Realtime API)
-- AWS account (DynamoDB, Lambda)
+- Voice AI provider: **Either** OpenAI API access (Realtime API) **or** AWS Bedrock access (Amazon Nova 2 Sonic)
+- AWS account (DynamoDB, Lambda, and optionally Bedrock for Nova 2)
 - Amazon Connect instance
 - HubSpot account with private app token
 
@@ -96,7 +97,20 @@ This system implements Pattern A architecture for enterprise voice AI:
    https://your-subdomain.ngrok.io/twilio/voice
    ```
 
-7. **Test a call**
+7. **Choose your voice provider**
+
+   In your `.env` file, set:
+   ```
+   # For OpenAI Realtime
+   VOICE_PROVIDER=openai
+   OPENAI_API_KEY=sk-proj-xxxxx
+
+   # OR for Amazon Nova 2 Sonic
+   VOICE_PROVIDER=nova
+   AWS_REGION=us-east-1
+   ```
+
+8. **Test a call**
 
    Call your Twilio number and speak with the AI assistant!
 
@@ -112,7 +126,9 @@ voice-openai-connect/
 │   └── retry.py              # Retry policies
 ├── services/
 │   ├── orchestrator/         # Business logic & integrations
+│   │   ├── voice_client_base.py     # Abstract voice client interface
 │   │   ├── openai_realtime.py       # OpenAI WebSocket client
+│   │   ├── nova_client.py           # Amazon Nova 2 Sonic client
 │   │   ├── dynamo_repository.py     # DynamoDB operations
 │   │   ├── hubspot_client.py        # HubSpot API client
 │   │   ├── twilio_client.py         # Twilio API client
@@ -145,6 +161,7 @@ All configuration via environment variables (see [.env.example](.env.example)):
 |----------|-------------|----------|
 | `PUBLIC_HOST` | Public hostname for webhooks | Yes |
 | `LOG_LEVEL` | Logging level (INFO, DEBUG) | No |
+| `VOICE_PROVIDER` | Voice provider: `openai` or `nova` | Yes |
 
 ### Twilio
 
@@ -154,13 +171,25 @@ All configuration via environment variables (see [.env.example](.env.example)):
 | `TWILIO_AUTH_TOKEN` | Twilio auth token | Yes |
 | `TWILIO_PHONE_NUMBER` | Twilio phone number | Yes |
 
-### OpenAI
+### Voice Provider Configuration
+
+#### OpenAI Realtime (when `VOICE_PROVIDER=openai`)
 
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `OPENAI_API_KEY` | OpenAI API key | Yes |
 | `OPENAI_REALTIME_MODEL` | Model (default: gpt-4o-realtime-preview-2024-12-17) | No |
 | `OPENAI_VOICE` | Voice (alloy, echo, fable, onyx, nova, shimmer) | No |
+
+#### Amazon Nova 2 Sonic (when `VOICE_PROVIDER=nova`)
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `AWS_REGION` | AWS region (us-east-1, eu-north-1, ap-northeast-1) | Yes |
+| `AWS_ACCESS_KEY_ID` | AWS access key | Yes* |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes* |
+
+*Not required if using IAM roles. Nova 2 Sonic requires Bedrock permissions (`bedrock:InvokeModelWithResponseStream`).
 
 ### AWS
 
@@ -171,7 +200,7 @@ All configuration via environment variables (see [.env.example](.env.example)):
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes* |
 | `DYNAMODB_TABLE_NAME` | DynamoDB table name | Yes |
 
-*Not required if using IAM roles (EC2, ECS, Lambda)
+*Not required if using IAM roles (EC2, ECS, Lambda). AWS credentials are always required for DynamoDB.
 
 ### Amazon Connect
 
@@ -269,11 +298,11 @@ The Lambda function returns these attributes for Connect:
 
 2. Twilio establishes WebSocket to /twilio/stream
    └─> Gateway creates session
-   └─> Gateway connects to OpenAI Realtime
+   └─> Gateway connects to voice provider (OpenAI Realtime or Nova 2 Sonic)
    └─> Bi-directional audio streaming begins
 
 3. Customer converses with AI
-   └─> Audio: Twilio ←→ Gateway ←→ OpenAI
+   └─> Audio: Twilio ←→ Gateway ←→ Voice Provider
    └─> Transcripts checked for escalation keywords
 
 4. Escalation triggered (e.g., "I need an agent")
@@ -366,7 +395,7 @@ Key metrics to monitor:
 - Active sessions count
 - Escalation rate
 - Average session duration
-- OpenAI connection failures
+- Voice provider connection failures (OpenAI or Nova 2)
 - DynamoDB throttling
 - Lambda invocation errors
 
@@ -374,7 +403,7 @@ Key metrics to monitor:
 
 ### Twilio WebSocket Disconnects
 
-- Check OpenAI connection health
+- Check voice provider connection health (OpenAI or Nova 2)
 - Verify keepalive/silence handling
 - Review correlation IDs in logs
 
@@ -387,8 +416,9 @@ Key metrics to monitor:
 
 ### Audio Quality Issues
 
-- Twilio sends mulaw 8kHz, OpenAI expects PCM16
-- Implement audio format conversion if needed
+- Twilio sends mulaw 8kHz
+  - OpenAI Realtime expects PCM16 (conversion may be needed)
+  - Nova 2 Sonic natively supports mulaw 8kHz (ideal for telephony)
 - Check network latency between services
 
 ## Security Considerations
