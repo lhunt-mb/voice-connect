@@ -1,0 +1,67 @@
+# AWS Configuration
+aws_region = "ap-southeast-2"
+environment = "dev"
+project_name = "voice-openai-connect"
+
+# Networking
+vpc_cidr = "10.0.0.0/16"
+availability_zones = ["ap-southeast-2a", "ap-southeast-2b"]
+
+# ECS Configuration
+gateway_image_tag = "latest"
+gateway_cpu = 512
+gateway_memory_mib = 1024
+gateway_desired_count = 2
+gateway_min_capacity = 1
+gateway_max_capacity = 10
+
+# DynamoDB Configuration
+dynamodb_table_name = "HandoverTokens"
+token_ttl_seconds = 600
+
+# Lambda Configuration
+lambda_image_tag = "latest"
+lambda_memory_mib = 256
+lambda_timeout_seconds = 30
+
+# Secrets Configuration (SENSITIVE - DO NOT COMMIT)
+twilio_account_sid = "your_twilio_account_sid"
+twilio_auth_token = "your_twilio_auth_token"
+twilio_phone_number = "+1234567890"
+
+# Voice Provider Configuration
+voice_provider = "nova" # or "openai"
+
+# OpenAI Configuration (if voice_provider = "openai")
+openai_api_key = ""
+openai_realtime_model = "gpt-4o-realtime-preview-2024-12-17"
+openai_voice = "alloy"
+
+# Nova Configuration (if voice_provider = "nova")
+nova_region = "us-east-1"
+enable_bedrock_access = true
+
+# Amazon Connect Configuration
+connect_phone_number = "+1234567890"
+connect_instance_id = "your_connect_instance_id"
+
+# HubSpot Configuration (optional)
+hubspot_access_token = ""
+enable_hubspot = true
+
+# Application Configuration
+log_level = "INFO"
+
+# SSL Certificate (optional)
+certificate_arn = ""
+domain_name = ""
+
+# Monitoring
+enable_container_insights = true
+alarm_email = "alerts@example.com"
+
+# Additional Tags
+additional_tags = {
+  CostCenter = "Engineering"
+  Owner = "DevOps Team"
+}
