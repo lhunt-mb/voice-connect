@@ -79,7 +79,7 @@ resource "aws_ecs_task_definition" "gateway" {
         },
         {
           name  = "PUBLIC_HOST"
-          value = aws_lb.main.dns_name
+          value = var.domain_name != "" ? var.domain_name : aws_lb.main.dns_name
         }
       ]
 

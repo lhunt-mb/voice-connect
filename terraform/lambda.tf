@@ -74,13 +74,29 @@ resource "aws_lambda_alias" "connect_lookup" {
   function_version = "$LATEST"
 }
 
-# Lambda Permission for Amazon Connect
+# Lambda Permission for Amazon Connect (unqualified function)
 resource "aws_lambda_permission" "connect" {
   statement_id  = "AllowExecutionFromConnect"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.connect_lookup.function_name
   principal     = "connect.amazonaws.com"
   source_arn    = "arn:aws:connect:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/${var.connect_instance_id}/*"
+}
+
+# Lambda Permission for Amazon Connect (alias - for qualified ARN invocations)
+resource "aws_lambda_permission" "connect_alias" {
+  statement_id  = "AllowExecutionFromConnectAlias"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.connect_lookup.function_name
+  qualifier     = aws_lambda_alias.connect_lookup.name
+  principal     = "connect.amazonaws.com"
+  source_arn    = "arn:aws:connect:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/${var.connect_instance_id}/*"
+}
+
+# Associate Lambda function with Amazon Connect instance
+resource "aws_connect_lambda_function_association" "connect_lookup" {
+  instance_id  = var.connect_instance_id
+  function_arn = aws_lambda_alias.connect_lookup.arn
 }
 
 # CloudWatch Alarms for Lambda

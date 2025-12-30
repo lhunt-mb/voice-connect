@@ -110,7 +110,10 @@ async def twilio_voice_webhook(request: Request) -> HTMLResponse:
     action_url = f"https://{settings.public_host}/twilio/stream-ended"
 
     connect = Connect(action=action_url, method="POST")
-    connect.stream(url=stream_url)
+    stream = connect.stream(url=stream_url)
+    # Pass caller phone number as custom parameter to the WebSocket stream
+    if caller_phone:
+        stream.parameter(name="From", value=caller_phone)  # type: ignore[union-attr]
     response.append(connect)
 
     return HTMLResponse(content=str(response), media_type="application/xml")
