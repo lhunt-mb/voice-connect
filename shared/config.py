@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     # Voice Provider Configuration
     voice_provider: str = Field(default="openai", description="Voice provider: 'openai' or 'nova'")
+    use_pipecat: bool = Field(default=True, description="Use Pipecat framework for voice AI pipeline")
 
     # OpenAI Configuration
     openai_api_key: str | None = Field(default=None, description="OpenAI API key (required if voice_provider=openai)")

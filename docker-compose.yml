@@ -29,6 +29,7 @@ services:
 
       # AWS
       - AWS_REGION=${AWS_REGION:-ap-southeast-2}
+      - NOVA_REGION=${NOVA_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8000
@@ -47,6 +48,7 @@ services:
       - TOKEN_TTL_SECONDS=${TOKEN_TTL_SECONDS:-600}
       - TOKEN_LENGTH=${TOKEN_LENGTH:-10}
       - USE_LOCAL_DYNAMODB=true
+      - USE_PIPECAT=true
     depends_on:
       dynamodb-local:
         condition: service_healthy

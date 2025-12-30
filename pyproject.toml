@@ -16,6 +16,10 @@ dependencies = [
     "python-multipart>=0.0.9",
     "twilio>=9.0.0",
     "aws-sdk-bedrock-runtime>=0.2.0",
+    # Pipecat for voice AI pipeline orchestration
+    "pipecat-ai[openai,silero,aws-nova-sonic]>=0.0.98",
+    # aioboto3 required for Pipecat AWS Nova Sonic (not always pulled by extra)
+    "aioboto3>=13.0.0",
 ]
 
 [tool.setuptools.packages.find]

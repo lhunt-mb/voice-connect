@@ -27,7 +27,14 @@ class StreamHandler:
         voice_client: VoiceClientBase,
         orchestrator: Orchestrator,
     ) -> None:
-        """Initialize the stream handler."""
+        """Initialize the stream handler.
+
+        Args:
+            websocket: Twilio WebSocket connection
+            session: Session state
+            voice_client: Voice AI client (OpenAI or Nova)
+            orchestrator: Business logic orchestrator
+        """
         self.websocket = websocket
         self.session = session
         self.voice_client = voice_client

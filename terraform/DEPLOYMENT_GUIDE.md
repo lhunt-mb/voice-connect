@@ -78,7 +78,7 @@ aws s3api put-bucket-encryption \
 
 # Create DynamoDB table for locking
 aws dynamodb create-table \
-  --table-name terraform-state-locking \
+  --table-name voice-connect-terraform-state-locking \
   --attribute-definitions AttributeName=LockID,AttributeType=S \
   --key-schema AttributeName=LockID,KeyType=HASH \
   --billing-mode PAY_PER_REQUEST \

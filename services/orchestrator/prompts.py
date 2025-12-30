@@ -1,7 +1,9 @@
-"""AI assistant prompts for OpenAI Realtime API.
+"""AI assistant prompts for voice AI services.
 
 This module contains all prompt configurations used by the orchestrator.
 Prompts are organized as structured data to enable testing with DeepEval.
+
+Supports both OpenAI Realtime API and Pipecat pipeline configurations.
 """
 
 from dataclasses import dataclass
@@ -14,7 +16,8 @@ class AssistantPrompt:
 
     Attributes:
         instructions: System instructions that define the assistant's behavior
-        voice: Voice model identifier (e.g., "alloy", "echo", "shimmer")
+        voice: Voice model identifier (e.g., "alloy", "echo", "shimmer" for OpenAI,
+               "olivia", "matteo", "tiffany" for Nova Sonic)
         context: Optional context about the prompt's purpose (for testing/documentation)
     """
 
@@ -29,6 +32,34 @@ class AssistantPrompt:
             Dictionary with session configuration including instructions and voice
         """
         return {"instructions": self.instructions, "voice": self.voice}
+
+    def to_pipecat_messages(self) -> list[dict[str, str]]:
+        """Convert prompt to Pipecat message format.
+
+        Returns:
+            List of message dictionaries for Pipecat LLM context
+        """
+        return [{"role": "system", "content": self.instructions}]
+
+    def to_nova_sonic_config(self) -> dict[str, Any]:
+        """Convert prompt to Nova Sonic configuration.
+
+        Returns:
+            Dictionary with Nova Sonic-specific configuration
+        """
+        # Map OpenAI voices to Nova Sonic voices
+        voice_mapping = {
+            "alloy": "olivia",
+            "echo": "matteo",
+            "shimmer": "tiffany",
+            "verse": "olivia",
+        }
+        nova_voice = voice_mapping.get(self.voice, "olivia")
+
+        return {
+            "system_instruction": self.instructions,
+            "voice_id": nova_voice,
+        }
 
 
 # Default assistant prompt for general customer service

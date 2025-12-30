@@ -69,20 +69,44 @@ terraform fmt -recursive
 
 ## High-Level Architecture
 
+### Pipecat Framework (Default)
+
+The system uses **Pipecat** (https://pipecat.ai) for voice AI pipeline orchestration. Pipecat provides:
+
+- Unified pipeline architecture for audio streaming
+- Native support for OpenAI Realtime and Nova 2 Sonic
+- Built-in Twilio WebSocket serialization
+- Modular, testable frame processors
+
+**Architecture with Pipecat:**
+```
+Twilio WebSocket → FastAPIWebsocketTransport → Voice AI Service → EscalationProcessor → Transport Output
+                   (TwilioFrameSerializer)     (OpenAI/Nova)      (keyword detection)
+```
+
+Switch between implementations via `USE_PIPECAT` environment variable (default: `true`).
+
 ### Voice Provider Abstraction
 
-The system uses a **pluggable voice provider architecture** via `VoiceClientBase` abstract class:
+**Pipecat Mode (USE_PIPECAT=true):**
+- Voice providers configured via Pipecat's service adapters
+- Escalation handled by `EscalationProcessor` frame processor
+- Cleaner, more testable code
+
+**Legacy Mode (USE_PIPECAT=false):**
+Uses the `VoiceClientBase` abstract class:
 
 - **OpenAI Realtime** (`openai_realtime.py`): WebSocket-based, requires PCM16 audio conversion
 - **Nova 2 Sonic** (`nova_sonic.py`): AWS Bedrock bidirectional streaming, native G.711 μ-law support
 
-Switch providers via `VOICE_PROVIDER` environment variable (`openai` or `nova`). Both implement the same interface: `connect()`, `send_audio_base64()`, `events()`, `cancel_response()`, `close()`.
-
-**Key difference**: Nova 2 natively supports Twilio's G.711 μ-law 8kHz format, eliminating audio conversion overhead.
+Switch providers via `VOICE_PROVIDER` environment variable (`openai` or `nova`).
 
 ### Session Management & Concurrency
 
-Each call creates an isolated session in `SessionManager` (by `stream_sid`). All I/O is **async** using `asyncio` to support multiple concurrent calls. The `StreamHandler` manages bidirectional audio between Twilio WebSocket and the voice provider.
+Each call creates an isolated session in `SessionManager` (by `stream_sid`). All I/O is **async** using `asyncio` to support multiple concurrent calls.
+
+- **Pipecat mode**: Pipeline runner manages the stream lifecycle
+- **Legacy mode**: `StreamHandler` manages bidirectional audio
 
 **Important**: The gateway is stateless except for in-memory sessions. For horizontal scaling, implement sticky sessions at load balancer or use Redis for distributed state.
 
@@ -131,10 +155,16 @@ shared/                          # Cross-service utilities (no external dependen
 ├── aws_clients.py              # AWS client factories with retry policies
 └── retry.py                    # Tenacity retry decorators
 
+services/pipecat/                # Pipecat voice AI pipeline (DEFAULT)
+├── __init__.py                 # Public exports
+├── pipeline_factory.py         # Creates configured voice pipelines
+├── escalation_processor.py     # Frame processor for escalation detection
+└── README.md                   # Pipecat integration documentation
+
 services/orchestrator/           # Business logic layer
-├── voice_client_base.py        # Abstract interface for voice providers
-├── openai_realtime.py          # OpenAI Realtime WebSocket client
-├── nova_sonic.py               # Amazon Nova 2 Bedrock streaming client
+├── voice_client_base.py        # Abstract interface for voice providers (legacy)
+├── openai_realtime.py          # OpenAI Realtime WebSocket client (legacy)
+├── nova_sonic.py               # Amazon Nova 2 Bedrock streaming client (legacy)
 ├── prompts.py                  # AI prompt configurations (testable)
 ├── escalation.py               # Escalation keyword detection and triggers
 ├── orchestrator.py             # Main escalation workflow coordinator
@@ -144,15 +174,17 @@ services/orchestrator/           # Business logic layer
 └── token_generator.py          # Secure random token generation
 
 services/gateway/                # FastAPI HTTP/WebSocket gateway
-├── app.py                      # FastAPI application with Twilio webhooks
+├── app.py                      # FastAPI app with Twilio webhooks (legacy mode)
+├── app_pipecat.py              # FastAPI app using Pipecat (default)
 ├── session_manager.py          # Per-call session state management
-└── stream_handler.py           # Bidirectional audio streaming logic
+└── stream_handler.py           # Bidirectional audio streaming (legacy)
 
 aws/connect_lambda/              # Amazon Connect integration
 └── handler.py                  # Lambda: validates token, returns attributes
 
 tests/unit/                      # Unit tests (pytest + pytest-asyncio)
-└── test_prompts.py             # Prompt tests (includes DeepEval marker)
+├── test_prompts.py             # Prompt tests (includes DeepEval marker)
+└── test_pipecat_pipeline.py    # Pipecat pipeline tests
 ```
 
 ### Key Design Patterns
@@ -177,7 +209,8 @@ All configuration is via **environment variables** loaded by Pydantic Settings i
 
 ### Critical Environment Variables
 
-- `VOICE_PROVIDER`: `openai` or `nova` (determines which client to instantiate)
+- `USE_PIPECAT`: `true` (default) or `false` - Use Pipecat framework
+- `VOICE_PROVIDER`: `openai` or `nova` (determines which voice AI service to use)
 - `PUBLIC_HOST`: Public hostname for Twilio webhooks (e.g., ngrok domain)
 - `OPENAI_API_KEY`: Required if `VOICE_PROVIDER=openai`
 - `AWS_REGION`: Region for DynamoDB/Lambda (any AWS region)

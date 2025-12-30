@@ -23,5 +23,5 @@ COPY services/ ./services/
 # Expose port
 EXPOSE 8000
 
-# Run the gateway service
-CMD ["python", "-m", "uvicorn", "services.gateway.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the gateway service - app.py uses get_app() to select Pipecat or legacy based on USE_PIPECAT env var
+CMD ["python", "-m", "uvicorn", "services.gateway.app:get_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
