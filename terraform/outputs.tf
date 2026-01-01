@@ -106,6 +106,68 @@ output "secrets_manager_secret_arn" {
   sensitive   = true
 }
 
+# Knowledge Base Outputs
+output "kb_s3_bucket_name" {
+  description = "Name of the S3 bucket for Knowledge Base documents"
+  value       = aws_s3_bucket.kb_documents.id
+}
+
+output "kb_s3_bucket_arn" {
+  description = "ARN of the S3 bucket for Knowledge Base documents"
+  value       = aws_s3_bucket.kb_documents.arn
+}
+
+output "kb_knowledge_base_id" {
+  description = "ID of the Bedrock Knowledge Base"
+  value       = aws_bedrockagent_knowledge_base.policies.id
+}
+
+output "kb_knowledge_base_arn" {
+  description = "ARN of the Bedrock Knowledge Base"
+  value       = aws_bedrockagent_knowledge_base.policies.arn
+}
+
+output "kb_data_source_id" {
+  description = "ID of the Bedrock Data Source"
+  value       = aws_bedrockagent_data_source.airtable.data_source_id
+}
+
+output "kb_ingestion_instructions" {
+  description = "Instructions for ingesting Airtable data"
+  value       = <<-EOT
+
+  Knowledge Base Ingestion:
+
+  1. Set environment variables for the gateway:
+     - KB_KNOWLEDGE_BASE_ID=${aws_bedrockagent_knowledge_base.policies.id}
+     - KB_DATA_SOURCE_ID=${aws_bedrockagent_data_source.airtable.data_source_id}
+     - KB_REGION=${var.kb_region}
+     - KB_S3_BUCKET=${aws_s3_bucket.kb_documents.id}
+     - KB_S3_PREFIX=airtable-docs
+     - ENABLE_KB_TOOLS=true
+     - AIRTABLE_API_TOKEN=<your-token>
+     - AIRTABLE_BASE_ID=${var.airtable_base_id}
+     - ADMIN_API_KEY=<your-admin-key>
+
+  2. Trigger ingestion for all tables:
+     curl -X POST ${local.enable_https ? "https://${var.domain_name != "" ? var.domain_name : aws_lb.main.dns_name}" : "http://${aws_lb.main.dns_name}"}/admin/ingest-all-tables \
+       -H "X-Admin-API-Key: <your-admin-key>"
+
+  3. Trigger ingestion for specific table:
+     curl -X POST ${local.enable_https ? "https://${var.domain_name != "" ? var.domain_name : aws_lb.main.dns_name}" : "http://${aws_lb.main.dns_name}"}/admin/ingest-airtable \
+       -H "X-Admin-API-Key: <your-admin-key>" \
+       -H "Content-Type: application/json" \
+       -d '{"table_id": "tblHRgg8ntGwJzbg0"}'
+
+  4. Available tables:
+     - tblHRgg8ntGwJzbg0 (products)
+     - tblUwjFzHhcCae0EE (needs)
+     - tbl0Qp8t6CDe7SLzd (providers)
+     - tblpiWbvxAlMJsnTf (guardrails)
+
+  EOT
+}
+
 # IAM Outputs
 output "ecs_task_role_arn" {
   description = "ARN of the ECS task role"

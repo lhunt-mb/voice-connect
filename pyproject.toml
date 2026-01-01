@@ -16,6 +16,8 @@ dependencies = [
     "python-multipart>=0.0.9",
     "twilio>=9.0.0",
     "aws-sdk-bedrock-runtime>=0.2.0",
+    "pyairtable>=2.3.0",
+    "slowapi>=0.1.9",
 ]
 
 [tool.setuptools.packages.find]

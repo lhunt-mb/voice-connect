@@ -2,19 +2,30 @@
 
 import asyncio
 import logging
+import secrets
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from starlette.types import ExceptionHandler
 from twilio.twiml.voice_response import Connect, Dial, Number, VoiceResponse
 
 from services.gateway.session_manager import SessionManager
 from services.gateway.stream_handler import StreamHandler
 from services.orchestrator.dynamo_repository import DynamoRepository
+from services.orchestrator.ingestion_orchestrator import IngestionOrchestrator
+from services.orchestrator.kb_repository import KnowledgeBaseRepository
 from services.orchestrator.nova_sonic import NovaClient
 from services.orchestrator.openai_realtime import OpenAIRealtimeClient
 from services.orchestrator.orchestrator import Orchestrator
+from services.orchestrator.prompts import QLD_INTAKE_PROMPT
+from services.orchestrator.tool_executor import ToolExecutor
 from services.orchestrator.voice_client_base import VoiceClientBase
 from shared.config import get_settings
 from shared.logging import setup_logging
@@ -24,6 +35,9 @@ settings = get_settings()
 setup_logging(settings.log_level)
 
 logger = logging.getLogger(__name__)
+
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
 
 # Initialize DynamoDB repository (but don't create table yet)
 dynamo_repo = DynamoRepository(settings)
@@ -66,6 +80,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(title="AI Voice Gateway", version="0.1.0", lifespan=lifespan)
+
+# Add rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, cast(ExceptionHandler, _rate_limit_exceeded_handler))
 
 # Global instances
 session_manager = SessionManager()
@@ -273,6 +291,133 @@ async def twilio_escalate_status(request: Request) -> HTMLResponse:
     return HTMLResponse(content=str(response), media_type="application/xml")
 
 
+# Admin endpoints for Airtable ingestion
+
+
+class IngestionRequest(BaseModel):
+    """Request model for single table ingestion."""
+
+    table_id: str
+
+
+@app.post("/admin/ingest-airtable")
+@limiter.limit("10/hour")  # type: ignore[misc]
+async def ingest_airtable(
+    request: Request,
+    ingestion_request: IngestionRequest,
+    x_admin_api_key: str = Header(..., alias="X-Admin-API-Key"),
+) -> dict[str, Any]:
+    """Trigger Airtable ingestion for a single table (admin only).
+
+    Requires admin API key in X-Admin-API-Key header.
+    Rate limited to 10 requests per hour per IP.
+
+    Example:
+        POST /admin/ingest-airtable
+        X-Admin-API-Key: <key>
+        {"table_id": "tblHRgg8ntGwJzbg0"}
+
+    Valid table IDs:
+    - tblHRgg8ntGwJzbg0 (Products)
+    - tblUwjFzHhcCae0EE (Needs)
+    - tbl0Qp8t6CDe7SLzd (Service Providers)
+    - tblpiWbvxAlMJsnTf (Guardrails)
+    """
+    # Validate API key
+    if not settings.admin_api_key:
+        raise HTTPException(status_code=500, detail="Admin API key not configured")
+
+    # Use constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(x_admin_api_key, settings.admin_api_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    logger.info(
+        "Admin ingestion request received",
+        extra={"table_id": ingestion_request.table_id},
+    )
+
+    # Run ingestion for single table
+    orchestrator = IngestionOrchestrator(settings)
+    result = await orchestrator.ingest_table(ingestion_request.table_id)
+
+    # Convert dataclass to dict
+    return {
+        "job_id": result.job_id,
+        "status": result.status,
+        "table_id": result.table_id,
+        "table_type": result.table_type,
+        "records_fetched": result.records_fetched,
+        "documents_created": result.documents_created,
+        "s3_objects_uploaded": result.s3_objects_uploaded,
+        "s3_objects_deleted": result.s3_objects_deleted,
+        "ingestion_job_id": result.ingestion_job_id,
+        "elapsed_seconds": result.elapsed_seconds,
+        "errors": result.errors,
+    }
+
+
+@app.post("/admin/ingest-all-tables")
+@limiter.limit("5/hour")  # type: ignore[misc]
+async def ingest_all_tables(
+    request: Request,
+    x_admin_api_key: str = Header(..., alias="X-Admin-API-Key"),
+) -> dict[str, Any]:
+    """Trigger Airtable ingestion for all 4 tables (admin only).
+
+    Ingests Products, Needs, Service Providers, and Guardrails in sequence.
+    Requires admin API key in X-Admin-API-Key header.
+    Rate limited to 5 requests per hour per IP.
+
+    Example:
+        POST /admin/ingest-all-tables
+        X-Admin-API-Key: <key>
+    """
+    # Validate API key
+    if not settings.admin_api_key:
+        raise HTTPException(status_code=500, detail="Admin API key not configured")
+
+    # Use constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(x_admin_api_key, settings.admin_api_key):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    logger.info("Admin request to ingest all tables")
+
+    # Run ingestion for all tables
+    orchestrator = IngestionOrchestrator(settings)
+    results = await orchestrator.ingest_all_tables()
+
+    # Calculate summary
+    successful = sum(1 for r in results if r.status == "completed")
+    failed = sum(1 for r in results if r.status == "failed")
+    total_records = sum(r.records_fetched for r in results)
+
+    # Convert results to dicts
+    results_dicts = [
+        {
+            "job_id": r.job_id,
+            "status": r.status,
+            "table_id": r.table_id,
+            "table_type": r.table_type,
+            "records_fetched": r.records_fetched,
+            "documents_created": r.documents_created,
+            "s3_objects_uploaded": r.s3_objects_uploaded,
+            "s3_objects_deleted": r.s3_objects_deleted,
+            "ingestion_job_id": r.ingestion_job_id,
+            "elapsed_seconds": r.elapsed_seconds,
+            "errors": r.errors,
+        }
+        for r in results
+    ]
+
+    return {
+        "total_tables": len(results),
+        "successful": successful,
+        "failed": failed,
+        "total_records": total_records,
+        "results": results_dicts,
+    }
+
+
 @app.websocket("/twilio/stream")
 async def twilio_stream_websocket(websocket: WebSocket) -> None:
     """Twilio Media Stream WebSocket endpoint.
@@ -314,14 +459,27 @@ async def twilio_stream_websocket(websocket: WebSocket) -> None:
         # Create session
         session = session_manager.create_session(call_sid, stream_sid, caller_phone)
 
+        # Initialize tool executor if KB tools are enabled
+        tool_executor = None
+        if settings.enable_kb_tools:
+            logger.info("Initializing Knowledge Base tools", extra={"stream_sid": stream_sid})
+            kb_repo = KnowledgeBaseRepository(settings)
+            tool_executor = ToolExecutor(kb_repo)
+
         # Initialize Voice AI client based on configuration
         voice_client: VoiceClientBase
         if settings.voice_provider == "nova":
-            logger.info("Using Amazon Nova 2 Sonic voice provider")
-            voice_client = NovaClient(settings)
+            logger.info(
+                "Using Amazon Nova 2 Sonic voice provider",
+                extra={"stream_sid": stream_sid, "tools_enabled": tool_executor is not None},
+            )
+            voice_client = NovaClient(settings, prompt=QLD_INTAKE_PROMPT, tool_executor=tool_executor)
         else:
-            logger.info("Using OpenAI Realtime voice provider")
-            voice_client = OpenAIRealtimeClient(settings)
+            logger.info(
+                "Using OpenAI Realtime voice provider",
+                extra={"stream_sid": stream_sid, "tools_enabled": tool_executor is not None},
+            )
+            voice_client = OpenAIRealtimeClient(settings, prompt=QLD_INTAKE_PROMPT, tool_executor=tool_executor)
 
         # Create stream handler
         handler = StreamHandler(websocket, session, voice_client, orchestrator)

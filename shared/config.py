@@ -44,6 +44,23 @@ class Settings(BaseSettings):
     connect_phone_number: str = Field(..., description="Amazon Connect phone number")
     connect_instance_id: str = Field(..., description="Amazon Connect instance ID")
 
+    # Amazon Bedrock Knowledge Base Configuration
+    kb_knowledge_base_id: str | None = Field(default=None, description="Bedrock Knowledge Base ID")
+    kb_data_source_id: str | None = Field(default=None, description="Bedrock Data Source ID")
+    kb_region: str = Field(default="us-east-1", description="AWS region for Bedrock Knowledge Base")
+    enable_kb_tools: bool = Field(default=False, description="Enable Knowledge Base tools for voice providers")
+
+    # Airtable Configuration
+    airtable_api_token: str | None = Field(default=None, description="Airtable API token")
+    airtable_base_id: str | None = Field(default=None, description="Airtable base ID (e.g., appnM3j6FvK8goI8i)")
+
+    # S3 for Knowledge Base Documents
+    kb_s3_bucket: str | None = Field(default=None, description="S3 bucket for KB documents")
+    kb_s3_prefix: str = Field(default="airtable-docs", description="S3 prefix for KB documents")
+
+    # Admin API Configuration
+    admin_api_key: str | None = Field(default=None, description="Admin API key for ingestion endpoints")
+
     # HubSpot Configuration (Optional)
     hubspot_access_token: str | None = Field(default=None, description="HubSpot private app access token (optional)")
     hubspot_api_base_url: str = Field(default="https://api.hubapi.com", description="HubSpot API base URL")

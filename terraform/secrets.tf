@@ -51,6 +51,13 @@ resource "aws_secretsmanager_secret_version" "app_secrets" {
 
     # Logging
     LOG_LEVEL = var.log_level
+
+    # Airtable (for Knowledge Base ingestion)
+    AIRTABLE_API_TOKEN = var.airtable_api_token
+    AIRTABLE_BASE_ID   = var.airtable_base_id
+
+    # Admin API Key (for ingestion endpoints)
+    ADMIN_API_KEY = var.admin_api_key
   })
 }
 

@@ -20,6 +20,7 @@ from aws_sdk_bedrock_runtime.models import (
 from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
 from services.orchestrator.prompts import DEFAULT_ASSISTANT_PROMPT, AssistantPrompt
+from services.orchestrator.tools import NOVA_TOOLS
 from services.orchestrator.voice_client_base import VoiceClientBase
 from shared.config import Settings
 
@@ -29,15 +30,22 @@ logger = logging.getLogger(__name__)
 class NovaClient(VoiceClientBase):
     """Client for Amazon Nova 2 Sonic speech-to-speech model via Bedrock."""
 
-    def __init__(self, settings: Settings, prompt: AssistantPrompt | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        prompt: AssistantPrompt | None = None,
+        tool_executor: Any = None,
+    ) -> None:
         """Initialize the Nova 2 Sonic client.
 
         Args:
             settings: Application settings
             prompt: AI assistant prompt configuration. Defaults to DEFAULT_ASSISTANT_PROMPT
+            tool_executor: Optional ToolExecutor for handling tool calls
         """
         self.settings = settings
         self.prompt = prompt or DEFAULT_ASSISTANT_PROMPT
+        self.tool_executor = tool_executor
         self.conversation_id: str | None = None
         self._event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._audio_input_queue: asyncio.Queue[bytes] = asyncio.Queue()
@@ -109,7 +117,7 @@ class NovaClient(VoiceClientBase):
     async def _initialize_session(self) -> None:
         """Send Nova 2 Sonic session initialization events."""
         # Session start event - match AWS sample exactly
-        session_start = {
+        session_start_config: dict[str, Any] = {
             "event": {
                 "sessionStart": {
                     "inferenceConfiguration": {
@@ -120,7 +128,12 @@ class NovaClient(VoiceClientBase):
                 }
             }
         }
-        await self._send_event(session_start)
+
+        # Add tools if tool executor is configured
+        if self.tool_executor:
+            session_start_config["event"]["sessionStart"]["tools"] = NOVA_TOOLS
+
+        await self._send_event(session_start_config)
 
         # Prompt start event - configures output formats
         prompt_start = {
@@ -405,8 +418,12 @@ class NovaClient(VoiceClientBase):
                             if "event" in json_data:
                                 event = json_data["event"]
 
+                                # Tool use event - handle tool calling
+                                if "toolUse" in event and self.tool_executor:
+                                    asyncio.create_task(self._handle_tool_use(event))
+
                                 # Audio output
-                                if "audioOutput" in event:
+                                elif "audioOutput" in event:
                                     audio_content = event["audioOutput"]["content"]
                                     # Audio is base64-encoded 24kHz LPCM from Nova
                                     pcm_24khz = base64.b64decode(audio_content)
@@ -555,3 +572,122 @@ class NovaClient(VoiceClientBase):
                 logger.warning("Error sending session end event", extra={"error": str(e)})
 
         logger.info("Nova 2 Sonic connection closed", extra={"conversation_id": self.conversation_id})
+
+    def supports_tools(self) -> bool:
+        """Check if this provider supports tool calling.
+
+        Returns:
+            bool: True if tool_executor is configured, False otherwise
+        """
+        return self.tool_executor is not None
+
+    async def _handle_tool_use(self, event: dict[str, Any]) -> None:
+        """Handle tool use event from Nova 2 Sonic.
+
+        Args:
+            event: Tool use event from Nova with toolUseId, name, and input
+        """
+        if not self.tool_executor:
+            logger.warning("Received tool use event but no tool executor configured")
+            return
+
+        tool_use = event.get("toolUse", {})
+        tool_use_id = tool_use.get("toolUseId")
+        name = tool_use.get("name")
+        input_data = tool_use.get("input", {})
+
+        logger.info(
+            "Received tool use event",
+            extra={
+                "conversation_id": self.conversation_id,
+                "tool_use_id": tool_use_id,
+                "tool_name": name,
+                "input": str(input_data)[:100],  # Log first 100 chars
+            },
+        )
+
+        try:
+            # Execute tool
+            result = await self.tool_executor.execute_tool(name, input_data)
+
+            # Send result back to Nova
+            await self.send_tool_result(tool_use_id, result.result)
+
+            logger.info(
+                "Tool use executed successfully",
+                extra={
+                    "conversation_id": self.conversation_id,
+                    "tool_use_id": tool_use_id,
+                    "tool_name": name,
+                    "success": result.success,
+                },
+            )
+
+        except Exception as e:
+            logger.error(
+                "Tool use execution failed",
+                extra={
+                    "conversation_id": self.conversation_id,
+                    "tool_use_id": tool_use_id,
+                    "tool_name": name,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            # Send error result
+            await self.send_tool_result(tool_use_id, f"Error: {str(e)}")
+
+    async def send_tool_result(self, tool_call_id: str, result: str) -> None:
+        """Send tool execution result back to Nova 2 Sonic.
+
+        Args:
+            tool_call_id: Nova toolUseId for the tool call
+            result: Tool execution result as string
+        """
+        if not self._connected:
+            raise RuntimeError("Client not connected")
+
+        content_id = str(uuid.uuid4())
+
+        # Content start with toolResultConfiguration
+        content_start = {
+            "event": {
+                "contentStart": {
+                    "promptName": self.prompt_name,
+                    "contentName": content_id,
+                    "type": "TEXT",
+                    "role": "USER",
+                    "interactive": False,
+                    "toolResultConfiguration": {
+                        "toolUseId": tool_call_id,
+                        "status": "success",
+                    },
+                    "textInputConfiguration": {"mediaType": "text/plain"},
+                }
+            }
+        }
+        await self._send_event(content_start)
+
+        # Tool result with content
+        tool_result = {
+            "event": {
+                "toolResult": {
+                    "promptName": self.prompt_name,
+                    "contentName": content_id,
+                    "content": result,
+                }
+            }
+        }
+        await self._send_event(tool_result)
+
+        # Content end
+        await self._end_content(content_id)
+
+        logger.info(
+            "Sent tool result to Nova",
+            extra={
+                "conversation_id": self.conversation_id,
+                "tool_use_id": tool_call_id,
+                "result_length": len(result),
+            },
+        )

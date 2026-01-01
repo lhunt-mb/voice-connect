@@ -210,6 +210,39 @@ variable "enable_bedrock_access" {
   default     = false
 }
 
+# Knowledge Base Configuration
+variable "kb_region" {
+  description = "AWS region for Bedrock Knowledge Base (us-east-1, us-west-2, eu-central-1)"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "enable_kb_tools" {
+  description = "Enable Knowledge Base tools for voice providers"
+  type        = bool
+  default     = false
+}
+
+variable "airtable_api_token" {
+  description = "Airtable API token for ingestion (optional)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "airtable_base_id" {
+  description = "Airtable base ID (e.g., appnM3j6FvK8goI8i)"
+  type        = string
+  default     = ""
+}
+
+variable "admin_api_key" {
+  description = "Admin API key for ingestion endpoints"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # Monitoring
 variable "enable_container_insights" {
   description = "Enable CloudWatch Container Insights for ECS"

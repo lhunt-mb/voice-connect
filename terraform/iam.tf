@@ -122,6 +122,60 @@ resource "aws_iam_role_policy" "ecs_task_bedrock" {
   })
 }
 
+# ECS Task Policy - Knowledge Base access (conditional)
+resource "aws_iam_role_policy" "ecs_task_knowledge_base" {
+  count = var.enable_kb_tools ? 1 : 0
+
+  name_prefix = "${local.name_prefix}-ecs-kb-"
+  role        = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:Retrieve",
+          "bedrock:RetrieveAndGenerate"
+        ]
+        Resource = "arn:aws:bedrock:${var.kb_region}:${data.aws_caller_identity.current.account_id}:knowledge-base/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:StartIngestionJob",
+          "bedrock:GetIngestionJob",
+          "bedrock:GetKnowledgeBase",
+          "bedrock:GetDataSource"
+        ]
+        Resource = [
+          "arn:aws:bedrock:${var.kb_region}:${data.aws_caller_identity.current.account_id}:knowledge-base/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel"
+        ]
+        Resource = "arn:aws:bedrock:${var.kb_region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket",
+          "s3:DeleteObject"
+        ]
+        Resource = [
+          aws_s3_bucket.kb_documents.arn,
+          "${aws_s3_bucket.kb_documents.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
 # ECS Task Policy - Secrets Manager access (for runtime secret rotation)
 resource "aws_iam_role_policy" "ecs_task_secrets" {
   name_prefix = "${local.name_prefix}-ecs-secrets-"

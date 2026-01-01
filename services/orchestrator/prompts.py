@@ -1,11 +1,31 @@
 """AI assistant prompts for OpenAI Realtime API.
 
 This module contains all prompt configurations used by the orchestrator.
-Prompts are organized as structured data to enable testing with DeepEval.
+Prompts are loaded from markdown files for easier reading and editing.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+# Directory containing prompt markdown files
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _load_prompt(filename: str) -> str:
+    """Load a prompt from a markdown file.
+
+    Args:
+        filename: Name of the markdown file (without .md extension)
+
+    Returns:
+        Contents of the markdown file as a string
+
+    Raises:
+        FileNotFoundError: If the prompt file doesn't exist
+    """
+    filepath = PROMPTS_DIR / f"{filename}.md"
+    return filepath.read_text(encoding="utf-8")
 
 
 @dataclass(frozen=True)
@@ -31,64 +51,61 @@ class AssistantPrompt:
         return {"instructions": self.instructions, "voice": self.voice}
 
 
-# Default assistant prompt for general customer service
-DEFAULT_ASSISTANT_PROMPT = AssistantPrompt(
-    instructions=(
-        "You are a helpful AI assistant speaking with an Australian accent. "
-        "Use Australian expressions and pronunciation naturally. "
-        "If the user requests to speak with a human agent or representative, "
-        "acknowledge their request politely."
-    ),
-    voice="alloy",
-    context="General purpose assistant for customer service interactions with Australian accent",
-)
-
-
-# Example: Technical support assistant prompt
-TECHNICAL_SUPPORT_PROMPT = AssistantPrompt(
-    instructions=(
-        "You are a technical support AI assistant speaking with an Australian accent. "
-        "Use Australian expressions naturally while providing clear, step-by-step troubleshooting guidance. "
-        "If the issue requires human expertise or the user requests it, "
-        "politely acknowledge and offer to transfer to a human specialist."
-    ),
-    voice="alloy",
-    context="Technical support with Australian accent and escalation handling",
-)
-
-
-# Example: Sales assistant prompt
-SALES_ASSISTANT_PROMPT = AssistantPrompt(
-    instructions=(
-        "You are a friendly sales assistant speaking with an Australian accent. "
-        "Use Australian expressions naturally while helping customers understand product features and pricing. "
-        "If the customer needs detailed pricing or wants to make a purchase, "
-        "politely offer to connect them with a sales representative."
-    ),
-    voice="shimmer",
-    context="Sales assistance with Australian accent and product information",
-)
+# Prompt configurations with metadata
+# Instructions are loaded from markdown files in the prompts/ directory
+PROMPT_CONFIGS: dict[str, dict[str, str]] = {
+    "default": {
+        "file": "default",
+        "voice": "alloy",
+        "context": "General purpose assistant for customer service interactions with Australian accent",
+    },
+    "technical": {
+        "file": "technical",
+        "voice": "alloy",
+        "context": "Technical support with Australian accent and escalation handling",
+    },
+    "sales": {
+        "file": "sales",
+        "voice": "shimmer",
+        "context": "Sales assistance with Australian accent and product information",
+    },
+    "qld_intake": {
+        "file": "qld_intake",
+        "voice": "alloy",
+        "context": "QLD road injury legal intake voice AI - Maurice Blackburn",
+    },
+}
 
 
 def get_prompt(prompt_type: str = "default") -> AssistantPrompt:
     """Get a prompt by type.
 
     Args:
-        prompt_type: Type of prompt to retrieve (default, technical, sales)
+        prompt_type: Type of prompt to retrieve (default, technical, sales, qld_intake)
 
     Returns:
         AssistantPrompt configuration
 
     Raises:
         ValueError: If prompt_type is not recognized
+        FileNotFoundError: If the prompt file doesn't exist
     """
-    prompts = {
-        "default": DEFAULT_ASSISTANT_PROMPT,
-        "technical": TECHNICAL_SUPPORT_PROMPT,
-        "sales": SALES_ASSISTANT_PROMPT,
-    }
+    if prompt_type not in PROMPT_CONFIGS:
+        raise ValueError(f"Unknown prompt type: {prompt_type}. Available: {list(PROMPT_CONFIGS.keys())}")
 
-    if prompt_type not in prompts:
-        raise ValueError(f"Unknown prompt type: {prompt_type}. Available: {list(prompts.keys())}")
+    config = PROMPT_CONFIGS[prompt_type]
+    instructions = _load_prompt(config["file"])
 
-    return prompts[prompt_type]
+    return AssistantPrompt(
+        instructions=instructions,
+        voice=config["voice"],
+        context=config["context"],
+    )
+
+
+# Pre-loaded prompts for backward compatibility and direct import
+# These are loaded at module import time
+DEFAULT_ASSISTANT_PROMPT = get_prompt("default")
+TECHNICAL_SUPPORT_PROMPT = get_prompt("technical")
+SALES_ASSISTANT_PROMPT = get_prompt("sales")
+QLD_INTAKE_PROMPT = get_prompt("qld_intake")

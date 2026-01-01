@@ -12,6 +12,7 @@ import websockets
 from websockets.client import WebSocketClientProtocol  # type: ignore[attr-defined]
 
 from services.orchestrator.prompts import DEFAULT_ASSISTANT_PROMPT, AssistantPrompt
+from services.orchestrator.tools import OPENAI_TOOLS
 from services.orchestrator.voice_client_base import VoiceClientBase
 from shared.config import Settings
 
@@ -21,15 +22,22 @@ logger = logging.getLogger(__name__)
 class OpenAIRealtimeClient(VoiceClientBase):
     """WebSocket client for OpenAI Realtime API."""
 
-    def __init__(self, settings: Settings, prompt: AssistantPrompt | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        prompt: AssistantPrompt | None = None,
+        tool_executor: Any = None,
+    ) -> None:
         """Initialize the OpenAI Realtime client.
 
         Args:
             settings: Application settings
             prompt: AI assistant prompt configuration. Defaults to DEFAULT_ASSISTANT_PROMPT
+            tool_executor: Optional ToolExecutor for handling tool calls
         """
         self.settings = settings
         self.prompt = prompt or DEFAULT_ASSISTANT_PROMPT
+        self.tool_executor = tool_executor
         self.ws: WebSocketClientProtocol | None = None
         self.conversation_id: str | None = None
         self._receive_task: asyncio.Task[None] | None = None
@@ -87,13 +95,18 @@ class OpenAIRealtimeClient(VoiceClientBase):
                     "prefix_padding_ms": 300,
                     "silence_duration_ms": 500,
                 },
+                "tools": OPENAI_TOOLS if self.tool_executor else [],  # Add tools if executor available
             },
         }
 
         await self._send_event(session_config)
         logger.info(
             "Sent session configuration",
-            extra={"conversation_id": self.conversation_id, "prompt_context": self.prompt.context},
+            extra={
+                "conversation_id": self.conversation_id,
+                "prompt_context": self.prompt.context,
+                "tools_enabled": bool(self.tool_executor),
+            },
         )
 
     async def _send_event(self, event: dict[str, Any]) -> None:
@@ -113,7 +126,14 @@ class OpenAIRealtimeClient(VoiceClientBase):
                 try:
                     if isinstance(message, str):
                         event = json.loads(message)
-                        await self._event_queue.put(event)
+
+                        # Handle function call events if tool executor is available
+                        if self.tool_executor and event.get("type") == "response.function_call_arguments.done":
+                            asyncio.create_task(self._handle_function_call(event))
+                        else:
+                            # Queue all other events for processing
+                            await self._event_queue.put(event)
+
                         logger.info(
                             "Received OpenAI event",
                             extra={"conversation_id": self.conversation_id, "event_type": event.get("type")},
@@ -219,6 +239,79 @@ class OpenAIRealtimeClient(VoiceClientBase):
 
         logger.info("Triggered initial greeting from OpenAI", extra={"conversation_id": self.conversation_id})
 
+    async def _handle_function_call(self, event: dict[str, Any]) -> None:
+        """Handle function call from OpenAI.
+
+        Args:
+            event: Function call event from OpenAI with call_id, name, and arguments
+        """
+        if not self.tool_executor:
+            logger.warning("Received function call but no tool executor configured")
+            return
+
+        call_id = event.get("call_id")
+        name = event.get("name")
+        arguments_str = event.get("arguments", "{}")
+
+        if not call_id:
+            logger.error(
+                "Function call missing call_id",
+                extra={"conversation_id": self.conversation_id, "event": event},
+            )
+            return
+
+        logger.info(
+            "Received function call",
+            extra={
+                "conversation_id": self.conversation_id,
+                "call_id": call_id,
+                "function_name": name,
+                "arguments": arguments_str[:100],  # Log first 100 chars
+            },
+        )
+
+        try:
+            # Parse arguments
+            arguments = json.loads(arguments_str)
+
+            # Execute tool
+            result = await self.tool_executor.execute_tool(name, arguments)
+
+            # Send result back to OpenAI
+            await self.send_tool_result(call_id, result.result)
+
+            logger.info(
+                "Function call executed successfully",
+                extra={
+                    "conversation_id": self.conversation_id,
+                    "call_id": call_id,
+                    "function_name": name,
+                    "success": result.success,
+                },
+            )
+
+        except json.JSONDecodeError as e:
+            logger.error(
+                "Failed to parse function call arguments",
+                extra={"conversation_id": self.conversation_id, "call_id": call_id, "error": str(e)},
+            )
+            # Send error result
+            await self.send_tool_result(call_id, "Error: Failed to parse arguments")
+
+        except Exception as e:
+            logger.error(
+                "Function call execution failed",
+                extra={
+                    "conversation_id": self.conversation_id,
+                    "call_id": call_id,
+                    "function_name": name,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            # Send error result
+            await self.send_tool_result(call_id, f"Error: {str(e)}")
+
     async def events(self) -> AsyncGenerator[dict[str, Any], None]:
         """Async iterator for receiving events from OpenAI."""
         while True:
@@ -249,3 +342,46 @@ class OpenAIRealtimeClient(VoiceClientBase):
             self.ws = None
 
         logger.info("OpenAI Realtime connection closed", extra={"conversation_id": self.conversation_id})
+
+    def supports_tools(self) -> bool:
+        """Check if this provider supports tool calling.
+
+        Returns:
+            bool: True if tool_executor is configured, False otherwise
+        """
+        return self.tool_executor is not None
+
+    async def send_tool_result(self, tool_call_id: str, result: str) -> None:
+        """Send tool execution result back to OpenAI.
+
+        Args:
+            tool_call_id: OpenAI call_id for the function call
+            result: Tool execution result as string
+        """
+        if not self.ws:
+            raise RuntimeError("WebSocket not connected")
+
+        # Create conversation item with function call output
+        event = {
+            "type": "conversation.item.create",
+            "item": {
+                "type": "function_call_output",
+                "call_id": tool_call_id,
+                "output": result,
+            },
+        }
+
+        await self._send_event(event)
+
+        # Trigger response generation with the tool result
+        response_event = {"type": "response.create"}
+        await self._send_event(response_event)
+
+        logger.info(
+            "Sent tool result to OpenAI",
+            extra={
+                "conversation_id": self.conversation_id,
+                "call_id": tool_call_id,
+                "result_length": len(result),
+            },
+        )

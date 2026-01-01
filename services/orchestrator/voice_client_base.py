@@ -55,3 +55,33 @@ class VoiceClientBase(ABC):
     async def close(self) -> None:
         """Close the connection to the voice AI service."""
         pass
+
+    def supports_tools(self) -> bool:
+        """Check if this provider supports tool calling.
+
+        Default implementation returns False.
+        Subclasses with tool support should override to return True.
+
+        Returns:
+            bool: True if provider supports tools, False otherwise
+        """
+        return False
+
+    async def send_tool_result(
+        self,
+        tool_call_id: str,
+        result: str,
+    ) -> None:
+        """Send tool execution result back to the voice AI provider.
+
+        This is an optional method for providers that support tool calling.
+        Default implementation raises NotImplementedError.
+
+        Args:
+            tool_call_id: Provider-specific identifier for the tool call
+            result: Tool execution result as string
+
+        Raises:
+            NotImplementedError: If provider doesn't support tool calling
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support tool calling")

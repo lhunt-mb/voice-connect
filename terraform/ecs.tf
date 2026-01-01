@@ -80,6 +80,30 @@ resource "aws_ecs_task_definition" "gateway" {
         {
           name  = "PUBLIC_HOST"
           value = var.domain_name != "" ? var.domain_name : aws_lb.main.dns_name
+        },
+        {
+          name  = "KB_KNOWLEDGE_BASE_ID"
+          value = aws_bedrockagent_knowledge_base.policies.id
+        },
+        {
+          name  = "KB_DATA_SOURCE_ID"
+          value = aws_bedrockagent_data_source.airtable.data_source_id
+        },
+        {
+          name  = "KB_REGION"
+          value = var.kb_region
+        },
+        {
+          name  = "KB_S3_BUCKET"
+          value = aws_s3_bucket.kb_documents.id
+        },
+        {
+          name  = "KB_S3_PREFIX"
+          value = "airtable-docs"
+        },
+        {
+          name  = "ENABLE_KB_TOOLS"
+          value = tostring(var.enable_kb_tools)
         }
       ]
 
@@ -135,6 +159,18 @@ resource "aws_ecs_task_definition" "gateway" {
         {
           name      = "TOKEN_LENGTH"
           valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:TOKEN_LENGTH::"
+        },
+        {
+          name      = "AIRTABLE_API_TOKEN"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:AIRTABLE_API_TOKEN::"
+        },
+        {
+          name      = "AIRTABLE_BASE_ID"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:AIRTABLE_BASE_ID::"
+        },
+        {
+          name      = "ADMIN_API_KEY"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:ADMIN_API_KEY::"
         }
       ]
 
