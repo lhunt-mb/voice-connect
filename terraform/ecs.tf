@@ -247,6 +247,7 @@ resource "aws_ecs_service" "gateway" {
 
   deployment_maximum_percent         = 200
   deployment_minimum_healthy_percent = 100
+  health_check_grace_period_seconds  = 120
 
   deployment_circuit_breaker {
     enable   = true
