@@ -54,6 +54,9 @@ class NovaClient(VoiceClientBase):
         self._connected = False
         self._stream_response: Any = None
         self._audio_stream_started = False
+        self._response_started = False  # Track if we've emitted response.created
+        self._escalation_triggered = False
+        self._escalation_reason: str | None = None
 
         # Get Nova region (fallback to aws_region for backward compatibility)
         nova_region = settings.nova_region or settings.aws_region
@@ -424,6 +427,11 @@ class NovaClient(VoiceClientBase):
 
                                 # Audio output
                                 elif "audioOutput" in event:
+                                    # Emit response.created on first audio output for latency tracking
+                                    if not self._response_started:
+                                        self._response_started = True
+                                        await self._event_queue.put({"type": "response.created"})
+
                                     audio_content = event["audioOutput"]["content"]
                                     # Audio is base64-encoded 24kHz LPCM from Nova
                                     pcm_24khz = base64.b64decode(audio_content)
@@ -467,8 +475,24 @@ class NovaClient(VoiceClientBase):
                                             extra={"conversation_id": self.conversation_id, "transcript": text_content},
                                         )
 
+                                    elif role == "ASSISTANT":
+                                        # Assistant response transcription
+                                        normalized_event = {
+                                            "type": "response.audio_transcript.done",
+                                            "transcript": text_content,
+                                        }
+                                        await self._event_queue.put(normalized_event)
+
+                                        logger.info(
+                                            "Assistant transcript from Nova 2 Sonic",
+                                            extra={"conversation_id": self.conversation_id, "transcript": text_content},
+                                        )
+
                                 # Content/response completion
                                 elif "contentEnd" in event:
+                                    # Reset response started flag for next response
+                                    self._response_started = False
+
                                     normalized_event = {"type": "response.done"}
                                     await self._event_queue.put(normalized_event)
 
@@ -607,8 +631,27 @@ class NovaClient(VoiceClientBase):
         )
 
         try:
-            # Execute tool
-            result = await self.tool_executor.execute_tool(name, input_data)
+            # Execute tool with conversation_id for Langfuse tracing
+            result = await self.tool_executor.execute_tool(name, input_data, self.conversation_id)
+
+            # Check if tool triggers escalation
+            if result.triggers_escalation:
+                self._escalation_triggered = True
+                self._escalation_reason = input_data.get("reason", "AI requested escalation")
+                logger.info(
+                    "Tool triggered escalation",
+                    extra={
+                        "conversation_id": self.conversation_id,
+                        "reason": self._escalation_reason,
+                    },
+                )
+                # Queue a special escalation event for the stream handler
+                await self._event_queue.put(
+                    {
+                        "type": "escalation.triggered",
+                        "reason": self._escalation_reason,
+                    }
+                )
 
             # Send result back to Nova
             await self.send_tool_result(tool_use_id, result.result)

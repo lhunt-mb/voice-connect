@@ -256,6 +256,43 @@ variable "alarm_email" {
   default     = ""
 }
 
+# Langfuse Observability
+variable "langfuse_enabled" {
+  description = "Enable Langfuse tracing"
+  type        = bool
+  default     = false
+}
+
+variable "langfuse_public_key" {
+  description = "Langfuse public key"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "langfuse_secret_key" {
+  description = "Langfuse secret key"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "langfuse_host" {
+  description = "Langfuse host URL (cloud or self-hosted)"
+  type        = string
+  default     = "https://cloud.langfuse.com"
+}
+
+variable "langfuse_sample_rate" {
+  description = "Langfuse sampling rate (0.0 to 1.0)"
+  type        = number
+  default     = 1.0
+  validation {
+    condition     = var.langfuse_sample_rate >= 0 && var.langfuse_sample_rate <= 1
+    error_message = "Langfuse sample rate must be between 0.0 and 1.0"
+  }
+}
+
 # Tags
 variable "additional_tags" {
   description = "Additional tags to apply to all resources"

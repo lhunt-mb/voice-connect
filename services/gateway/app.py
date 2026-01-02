@@ -28,6 +28,7 @@ from services.orchestrator.prompts import QLD_INTAKE_PROMPT
 from services.orchestrator.tool_executor import ToolExecutor
 from services.orchestrator.voice_client_base import VoiceClientBase
 from shared.config import get_settings
+from shared.langfuse_tracing import flush_langfuse, init_langfuse
 from shared.logging import setup_logging
 
 # Initialize settings and logging
@@ -73,8 +74,15 @@ async def initialize_dynamodb() -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
     logger.info("Starting AI Voice Gateway service")
+
+    # Initialize Langfuse for observability
+    init_langfuse(settings)
+
     await initialize_dynamodb()
     yield
+
+    # Flush Langfuse events before shutdown
+    flush_langfuse()
     logger.info("Shutting down AI Voice Gateway service")
 
 
@@ -468,7 +476,8 @@ async def twilio_stream_websocket(websocket: WebSocket) -> None:
 
         # Initialize Voice AI client based on configuration
         voice_client: VoiceClientBase
-        if settings.voice_provider == "nova":
+        voice_provider = settings.voice_provider
+        if voice_provider == "nova":
             logger.info(
                 "Using Amazon Nova 2 Sonic voice provider",
                 extra={"stream_sid": stream_sid, "tools_enabled": tool_executor is not None},
@@ -480,9 +489,10 @@ async def twilio_stream_websocket(websocket: WebSocket) -> None:
                 extra={"stream_sid": stream_sid, "tools_enabled": tool_executor is not None},
             )
             voice_client = OpenAIRealtimeClient(settings, prompt=QLD_INTAKE_PROMPT, tool_executor=tool_executor)
+            voice_provider = "openai"
 
-        # Create stream handler
-        handler = StreamHandler(websocket, session, voice_client, orchestrator)
+        # Create stream handler with Langfuse tracing support
+        handler = StreamHandler(websocket, session, voice_client, orchestrator, voice_provider)
 
         # Handle the stream
         await handler.handle_stream()

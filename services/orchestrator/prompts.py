@@ -71,8 +71,8 @@ PROMPT_CONFIGS: dict[str, dict[str, str]] = {
     },
     "qld_intake": {
         "file": "qld_intake",
-        "voice": "alloy",
-        "context": "QLD road injury legal intake voice AI - Maurice Blackburn",
+        "voice": "coral",  # More expressive voice, better at following accent instructions
+        "context": "QLD road injury legal intake voice AI - Maurice Blackburn - Australian accent",
     },
 }
 

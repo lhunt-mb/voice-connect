@@ -11,6 +11,7 @@ from fastapi import WebSocket
 
 from services.orchestrator.orchestrator import Orchestrator
 from services.orchestrator.voice_client_base import VoiceClientBase
+from shared.langfuse_tracing import ConversationTrace, flush_langfuse
 from shared.logging import call_sid_ctx, conversation_id_ctx, stream_sid_ctx
 from shared.types import SessionState
 
@@ -26,14 +27,17 @@ class StreamHandler:
         session: SessionState,
         voice_client: VoiceClientBase,
         orchestrator: Orchestrator,
+        voice_provider: str = "openai",
     ) -> None:
         """Initialize the stream handler."""
         self.websocket = websocket
         self.session = session
         self.voice_client = voice_client
         self.orchestrator = orchestrator
+        self.voice_provider = voice_provider
         self._running = False
         self._openai_task: asyncio.Task[None] | None = None
+        self._conversation_trace: ConversationTrace | None = None
 
         # Set correlation IDs for logging
         call_sid_ctx.set(session.call_sid)
@@ -42,33 +46,43 @@ class StreamHandler:
 
     async def handle_stream(self) -> None:
         """Handle the complete stream lifecycle with dual concurrent tasks."""
-        try:
-            self._running = True
+        # Start Langfuse conversation trace
+        self._conversation_trace = ConversationTrace(
+            conversation_id=self.session.conversation_id,
+            call_sid=self.session.call_sid,
+            voice_provider=self.voice_provider,
+            caller_phone=self.session.caller_phone,
+            metadata={"stream_sid": self.session.stream_sid},
+        )
 
-            # Connect to Voice AI (OpenAI or Nova)
-            await self.voice_client.connect(self.session.conversation_id)
+        with self._conversation_trace:
+            try:
+                self._running = True
 
-            # Create two concurrent tasks following blog article pattern:
-            # 1. Receive from Twilio → Send to OpenAI
-            # 2. Receive from OpenAI → Send to Twilio
-            twilio_to_openai_task = asyncio.create_task(self._handle_twilio_to_openai())
-            openai_to_twilio_task = asyncio.create_task(self._handle_openai_to_twilio())
+                # Connect to Voice AI (OpenAI or Nova)
+                await self.voice_client.connect(self.session.conversation_id)
 
-            # Wait for either task to complete (usually means stream ended)
-            _, pending = await asyncio.wait(
-                [twilio_to_openai_task, openai_to_twilio_task], return_when=asyncio.FIRST_COMPLETED
-            )
+                # Create two concurrent tasks following blog article pattern:
+                # 1. Receive from Twilio → Send to OpenAI
+                # 2. Receive from OpenAI → Send to Twilio
+                twilio_to_openai_task = asyncio.create_task(self._handle_twilio_to_openai())
+                openai_to_twilio_task = asyncio.create_task(self._handle_openai_to_twilio())
 
-            # Cancel remaining tasks
-            for task in pending:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+                # Wait for either task to complete (usually means stream ended)
+                _, pending = await asyncio.wait(
+                    [twilio_to_openai_task, openai_to_twilio_task], return_when=asyncio.FIRST_COMPLETED
+                )
 
-        except Exception as e:
-            logger.error("Stream handler error", extra={"error": str(e)}, exc_info=True)
-        finally:
-            await self._cleanup()
+                # Cancel remaining tasks
+                for task in pending:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+
+            except Exception as e:
+                logger.error("Stream handler error", extra={"error": str(e)}, exc_info=True)
+            finally:
+                await self._cleanup()
 
     async def _handle_twilio_to_openai(self) -> None:
         """Receive audio from Twilio and forward to OpenAI.
@@ -139,7 +153,12 @@ class StreamHandler:
                 event_type = event.get("type")
                 logger.info("Processing OpenAI event", extra={"event_type": event_type})
 
-                if event_type == "response.audio.delta":
+                if event_type == "response.created":
+                    # Start tracking assistant response latency
+                    if self._conversation_trace:
+                        self._conversation_trace.start_assistant_turn(model=self.voice_provider)
+
+                elif event_type == "response.audio.delta":
                     # Get audio delta and send to Twilio
                     audio_b64 = event.get("delta")
                     if audio_b64:
@@ -153,14 +172,38 @@ class StreamHandler:
                         logger.info("Sent audio chunk to Twilio", extra={"audio_length": len(audio_b64)})
 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
-                    # Handle user transcript for escalation checking
+                    # Store user transcript and associate with in-progress generation
+                    transcript = event.get("transcript", "")
+                    if transcript and self._conversation_trace:
+                        self._conversation_trace.set_assistant_input(transcript)
+                    # Handle escalation checking
                     await self._handle_input_transcript(event)
+
+                elif event_type == "response.audio_transcript.done":
+                    # End assistant response tracking with transcript
+                    transcript = event.get("transcript", "")
+                    if self._conversation_trace:
+                        self._conversation_trace.end_assistant_turn(response_text=transcript)
+                    if transcript:
+                        logger.info(
+                            "Assistant response transcript",
+                            extra={"transcript": transcript[:100]},
+                        )
 
                 elif event_type == "response.done":
                     logger.info("OpenAI response completed")
 
                 elif event_type == "error":
                     logger.error("OpenAI error event", extra={"event": event})
+
+                elif event_type == "escalation.triggered":
+                    # AI triggered escalation via tool call
+                    reason = event.get("reason", "AI requested escalation")
+                    logger.info(
+                        "AI triggered escalation via tool",
+                        extra={"reason": reason},
+                    )
+                    await self._handle_ai_escalation(reason)
 
         except Exception as e:
             logger.error("Error in OpenAI→Twilio handler", extra={"error": str(e)}, exc_info=True)
@@ -169,7 +212,8 @@ class StreamHandler:
     async def _handle_input_transcript(self, event: dict[str, Any]) -> None:
         """Handle completed user transcript from OpenAI.
 
-        Check for escalation triggers.
+        Records user turn for tracing. Escalation is now handled by the AI
+        via the escalate_to_human tool rather than keyword detection.
         """
         transcript = event.get("transcript", "")
         if not transcript:
@@ -177,20 +221,12 @@ class StreamHandler:
 
         logger.info("User transcript", extra={"transcript": transcript})
 
-        # Check for escalation
-        try:
-            escalated = await self.orchestrator.check_and_handle_escalation(self.session, transcript)
+        # Record user turn in Langfuse trace
+        if self._conversation_trace:
+            self._conversation_trace.add_user_turn(transcript)
 
-            if escalated:
-                # Inform user via OpenAI audio
-                await self._send_escalation_message()
-
-                # End the stream - this will trigger the action URL
-                # which will check for the escalation token and route appropriately
-                self._running = False
-
-        except Exception as e:
-            logger.error("Error checking escalation", extra={"error": str(e)}, exc_info=True)
+        # Note: Escalation is now handled by the AI via the escalate_to_human tool
+        # which emits an "escalation.triggered" event processed in _handle_openai_to_twilio
 
     async def _send_escalation_message(self) -> None:
         """Send a message to user about escalation via OpenAI.
@@ -245,6 +281,34 @@ class StreamHandler:
         except Exception as e:
             logger.error("Failed to send escalation message", extra={"error": str(e)}, exc_info=True)
 
+    async def _handle_ai_escalation(self, reason: str) -> None:
+        """Handle escalation triggered by AI via tool call.
+
+        Args:
+            reason: Reason for escalation from the AI
+        """
+        from shared.types import EscalationReason
+
+        logger.info(
+            "Processing AI-triggered escalation",
+            extra={"reason": reason, "conversation_id": self.session.conversation_id},
+        )
+
+        # Execute escalation through orchestrator
+        await self.orchestrator.execute_escalation(self.session, EscalationReason.AGENT_DECISION)
+
+        # Record escalation in trace
+        if self._conversation_trace:
+            self._conversation_trace.add_escalation(
+                reason=f"ai_decision: {reason}",
+                token=self.session.metadata.get("handover_token"),
+            )
+
+        # The AI already told the user about the transfer via the tool result,
+        # so we don't need to send another message - just end the stream
+        # which will trigger the action URL to handle the redirect
+        self._running = False
+
     async def _cleanup(self) -> None:
         """Clean up resources."""
         logger.info("Cleaning up stream handler")
@@ -255,3 +319,6 @@ class StreamHandler:
                 await self._openai_task
 
         await self.voice_client.close()
+
+        # Flush Langfuse events to ensure they're sent before connection closes
+        flush_langfuse()

@@ -18,6 +18,7 @@ dependencies = [
     "aws-sdk-bedrock-runtime>=0.2.0",
     "pyairtable>=2.3.0",
     "slowapi>=0.1.9",
+    "langfuse>=2.0.0",
 ]
 
 [tool.setuptools.packages.find]

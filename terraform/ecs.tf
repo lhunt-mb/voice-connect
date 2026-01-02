@@ -171,6 +171,30 @@ resource "aws_ecs_task_definition" "gateway" {
         {
           name      = "ADMIN_API_KEY"
           valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:ADMIN_API_KEY::"
+        },
+        {
+          name      = "LANGFUSE_ENABLED"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:LANGFUSE_ENABLED::"
+        },
+        {
+          name      = "LANGFUSE_PUBLIC_KEY"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:LANGFUSE_PUBLIC_KEY::"
+        },
+        {
+          name      = "LANGFUSE_SECRET_KEY"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:LANGFUSE_SECRET_KEY::"
+        },
+        {
+          name      = "LANGFUSE_HOST"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:LANGFUSE_HOST::"
+        },
+        {
+          name      = "LANGFUSE_ENVIRONMENT"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:LANGFUSE_ENVIRONMENT::"
+        },
+        {
+          name      = "LANGFUSE_SAMPLE_RATE"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:LANGFUSE_SAMPLE_RATE::"
         }
       ]
 

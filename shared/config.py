@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     kb_data_source_id: str | None = Field(default=None, description="Bedrock Data Source ID")
     kb_region: str = Field(default="us-east-1", description="AWS region for Bedrock Knowledge Base")
     enable_kb_tools: bool = Field(default=False, description="Enable Knowledge Base tools for voice providers")
+    kb_retrieve_only: bool = Field(default=True, description="Use fast retrieve-only mode (skip LLM synthesis)")
 
     # Airtable Configuration
     airtable_api_token: str | None = Field(default=None, description="Airtable API token")
@@ -72,6 +73,14 @@ class Settings(BaseSettings):
 
     # Development
     use_local_dynamodb: bool = Field(default=False, description="Use local DynamoDB")
+
+    # Langfuse Observability
+    langfuse_enabled: bool = Field(default=False, description="Enable Langfuse tracing")
+    langfuse_public_key: str | None = Field(default=None, description="Langfuse public key")
+    langfuse_secret_key: str | None = Field(default=None, description="Langfuse secret key")
+    langfuse_host: str = Field(default="https://cloud.langfuse.com", description="Langfuse host URL")
+    langfuse_environment: str = Field(default="development", description="Langfuse environment tag")
+    langfuse_sample_rate: float = Field(default=1.0, description="Langfuse sampling rate (0.0 to 1.0)")
 
 
 def get_settings() -> Settings:

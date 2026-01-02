@@ -58,6 +58,14 @@ resource "aws_secretsmanager_secret_version" "app_secrets" {
 
     # Admin API Key (for ingestion endpoints)
     ADMIN_API_KEY = var.admin_api_key
+
+    # Langfuse Observability
+    LANGFUSE_ENABLED     = var.langfuse_enabled ? "true" : "false"
+    LANGFUSE_PUBLIC_KEY  = var.langfuse_public_key
+    LANGFUSE_SECRET_KEY  = var.langfuse_secret_key
+    LANGFUSE_HOST        = var.langfuse_host
+    LANGFUSE_ENVIRONMENT = var.environment
+    LANGFUSE_SAMPLE_RATE = tostring(var.langfuse_sample_rate)
   })
 }
 

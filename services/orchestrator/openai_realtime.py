@@ -42,6 +42,8 @@ class OpenAIRealtimeClient(VoiceClientBase):
         self.conversation_id: str | None = None
         self._receive_task: asyncio.Task[None] | None = None
         self._event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._escalation_triggered = False
+        self._escalation_reason: str | None = None
 
     async def connect(self, conversation_id: str) -> None:
         """Connect to OpenAI Realtime API and configure session."""
@@ -274,8 +276,27 @@ class OpenAIRealtimeClient(VoiceClientBase):
             # Parse arguments
             arguments = json.loads(arguments_str)
 
-            # Execute tool
-            result = await self.tool_executor.execute_tool(name, arguments)
+            # Execute tool with conversation_id for Langfuse tracing
+            result = await self.tool_executor.execute_tool(name, arguments, self.conversation_id)
+
+            # Check if tool triggers escalation
+            if result.triggers_escalation:
+                self._escalation_triggered = True
+                self._escalation_reason = arguments.get("reason", "AI requested escalation")
+                logger.info(
+                    "Tool triggered escalation",
+                    extra={
+                        "conversation_id": self.conversation_id,
+                        "reason": self._escalation_reason,
+                    },
+                )
+                # Queue a special escalation event for the stream handler
+                await self._event_queue.put(
+                    {
+                        "type": "escalation.triggered",
+                        "reason": self._escalation_reason,
+                    }
+                )
 
             # Send result back to OpenAI
             await self.send_tool_result(call_id, result.result)

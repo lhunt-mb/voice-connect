@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from services.orchestrator.dynamo_repository import DynamoRepository
-from services.orchestrator.escalation import check_escalation_needed, generate_escalation_summary
+from services.orchestrator.escalation import generate_escalation_summary
 from services.orchestrator.hubspot_client import HubSpotClient
 from services.orchestrator.token_generator import generate_token
 from shared.config import Settings
@@ -22,29 +22,6 @@ class Orchestrator:
         self.settings = settings
         self.dynamo_repo = DynamoRepository(settings)
         self.hubspot_client = HubSpotClient(settings)
-
-    async def check_and_handle_escalation(self, session: SessionState, transcript: str) -> bool:
-        """Check if escalation is needed and handle it.
-
-        Args:
-            session: Current session state
-            transcript: Recent transcript text
-
-        Returns:
-            True if escalation was triggered, False otherwise
-        """
-        should_escalate, reason = check_escalation_needed(session, transcript)
-
-        if not should_escalate:
-            return False
-
-        logger.info(
-            "Escalation triggered",
-            extra={"conversation_id": session.conversation_id, "reason": reason},
-        )
-
-        await self.execute_escalation(session, reason or EscalationReason.AGENT_DECISION)
-        return True
 
     async def execute_escalation(self, session: SessionState, reason: EscalationReason) -> str:
         """Execute the escalation process.

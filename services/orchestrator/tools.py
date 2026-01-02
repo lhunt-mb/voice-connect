@@ -92,12 +92,37 @@ SEARCH_GUARDRAILS_TOOL_OPENAI = {
     },
 }
 
+ESCALATE_TO_HUMAN_TOOL_OPENAI = {
+    "type": "function",
+    "name": "escalate_to_human",
+    "description": (
+        "Transfer the call to a human agent. Use when: client explicitly requests human help, "
+        "client shows signs of distress or frustration, conversation is stuck in a loop, "
+        "or the situation requires human judgment beyond eligibility screening."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": (
+                    "Brief reason for escalation. "
+                    "Examples: 'client requested human assistance', 'client showing distress', "
+                    "'complex situation requiring human judgment', 'unable to resolve query'"
+                ),
+            }
+        },
+        "required": ["reason"],
+    },
+}
+
 # List of all OpenAI tools for easy import
 OPENAI_TOOLS = [
     SEARCH_PRODUCTS_TOOL_OPENAI,
     SEARCH_NEEDS_TOOL_OPENAI,
     SEARCH_PROVIDERS_TOOL_OPENAI,
     SEARCH_GUARDRAILS_TOOL_OPENAI,
+    ESCALATE_TO_HUMAN_TOOL_OPENAI,
 ]
 
 
@@ -203,10 +228,38 @@ SEARCH_GUARDRAILS_TOOL_NOVA = {
     }
 }
 
+ESCALATE_TO_HUMAN_TOOL_NOVA = {
+    "toolSpec": {
+        "name": "escalate_to_human",
+        "description": (
+            "Transfer the call to a human agent. Use when: client explicitly requests human help, "
+            "client shows signs of distress or frustration, conversation is stuck in a loop, "
+            "or the situation requires human judgment beyond eligibility screening."
+        ),
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": (
+                            "Brief reason for escalation. "
+                            "Examples: 'client requested human assistance', 'client showing distress', "
+                            "'complex situation requiring human judgment', 'unable to resolve query'"
+                        ),
+                    }
+                },
+                "required": ["reason"],
+            }
+        },
+    }
+}
+
 # List of all Nova tools for easy import
 NOVA_TOOLS = [
     SEARCH_PRODUCTS_TOOL_NOVA,
     SEARCH_NEEDS_TOOL_NOVA,
     SEARCH_PROVIDERS_TOOL_NOVA,
     SEARCH_GUARDRAILS_TOOL_NOVA,
+    ESCALATE_TO_HUMAN_TOOL_NOVA,
 ]

@@ -216,9 +216,11 @@ voice-openai-connect/
 
 ### New Escalation Policy
 
-1. Add logic to `services/orchestrator/escalation.py`
-2. Update `check_escalation_needed()` function
-3. Add tests for new policy
+Escalation is handled by the AI via the `escalate_to_human` tool. To modify escalation behavior:
+
+1. Update tool definition in `services/orchestrator/tools.py`
+2. Update guidance in prompt file (e.g., `services/orchestrator/prompts/qld_intake.md`)
+3. Add tests for new behavior
 4. Document in README
 
 ### New API Endpoint

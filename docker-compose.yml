@@ -53,6 +53,14 @@ services:
       - TOKEN_TTL_SECONDS=${TOKEN_TTL_SECONDS:-600}
       - TOKEN_LENGTH=${TOKEN_LENGTH:-10}
       - USE_LOCAL_DYNAMODB=true
+
+      # Langfuse Observability
+      - LANGFUSE_ENABLED=${LANGFUSE_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - LANGFUSE_ENVIRONMENT=${LANGFUSE_ENVIRONMENT:-development}
+      - LANGFUSE_SAMPLE_RATE=${LANGFUSE_SAMPLE_RATE:-1.0}
     depends_on:
       dynamodb-local:
         condition: service_healthy
